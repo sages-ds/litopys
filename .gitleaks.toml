@@ -1,0 +1,12 @@
+# gitleaks (public CI): the default rules, minus the fixtures of the masking tests — fake credentials by design
+# (a jwt.io sample token, AKIA + ABCDEFGHIJKLMNOP, abc123…), there so the tests can prove they are caught.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "fixtures of the credential masking tests"
+paths = [
+  '''^core/privacy/privacy_test\.go$''',
+  '''^core/privacy/spec_test\.go$''',
+  '''^core/api/executor_gate_test\.go$''',
+]
