@@ -37,7 +37,16 @@ else
   cd "$root"
   mapfile -t specs < <(grep -v -e '^#' -e '^[[:space:]]*$' scripts/public-allowlist.txt | tr -d '\r')
 fi
-mapfile -t patterns < <(printf '%s' "$FORBIDDEN_TERMS_B64" | base64 -d | tr -d '\r')
+# decode first, outside a process substitution: a broken secret must stop the check, not pass as an empty list
+if ! list=$(printf '%s' "$FORBIDDEN_TERMS_B64" | base64 -d 2>/dev/null); then
+  echo "terms: FORBIDDEN_TERMS_B64 is no base64" >&2
+  exit 2
+fi
+mapfile -t patterns < <(printf '%s\n' "$list" | tr -d '\r')
+if ! printf '%s\n' "${patterns[@]}" | grep -q -v -e '^#' -e '^[[:space:]]*$'; then
+  echo "terms: the list has no pattern — the check would pass anything" >&2
+  exit 2
+fi
 
 found=0
 n=0

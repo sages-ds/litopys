@@ -1,4 +1,4 @@
-# CI of the public repository. Everything here runs without a database: the gates that need PostgreSQL run in
+# CI of the public repository. Actions are pinned by commit (the tag beside it); a bump takes the new SHA. Everything here runs without a database: the gates that need PostgreSQL run in
 # the maintainers' environment before a change reaches this repository.
 #   go       build, vet, gofmt, the unit tests
 #   domain   the domain validator, the drift check of the generated API surface, the plugin and search-lib tests
@@ -14,8 +14,8 @@ jobs:
   go:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.work # its toolchain line is the Go the code is built with
           cache-dependency-path: |
@@ -28,8 +28,8 @@ jobs:
   domain:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
       - run: npm ci
@@ -43,7 +43,7 @@ jobs:
       contents: read
       pull-requests: read # gitleaks lists the commits of a pull request
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # gitleaks scans the history, not only the tree
       - name: forbidden terms (blocking)
@@ -57,7 +57,8 @@ jobs:
             exit 1
           fi
           bash scripts/check-terms.sh --tree .
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "false" # the job fails and says where; no write access to pull requests
+          GITLEAKS_VERSION: "8.30.1" # pinned: .gitleaks.toml uses [[allowlists]] with condition (8.25+)
