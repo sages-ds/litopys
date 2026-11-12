@@ -1,0 +1,12 @@
+{
+  "name": "litopys",
+  "owner": { "name": "Litopys" },
+  "description": "Litopys — project memory for agents. Claude Code client.",
+  "plugins": [
+    {
+      "name": "litopys",
+      "source": "./litopys",
+      "description": "Project memory: this terminal's session in the project of the folder, start package from the native API, checkpoint reminders, folder bindings"
+    }
+  ]
+}

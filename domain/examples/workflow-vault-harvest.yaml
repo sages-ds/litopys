@@ -1,0 +1,56 @@
+# П4 золотого набору: переливання записів пам'яті в curated-зону vault.
+# Приклад для перевірки схеми WorkflowDefinition — не опис чинного процесу.
+schema: "types.yaml#/$defs/WorkflowDefinition"
+example:
+  params:
+    type: object
+    properties:
+      project: { type: string }
+      limit: { type: integer, maximum: 30 }
+  triggers:
+    - { kind: manual }
+    - { kind: journal, spec: context.closed }
+  touches: [ai-memory, vault, git]
+  verified_at: 2026-10-13
+  steps:
+    - key: cursor
+      title: Позиція споживача vault-harvest
+      kind: script
+    - key: collect
+      title: Кандидати на переливання
+      kind: model
+      executor_class: cheap
+      who_may_run: executor
+      verbs: [consumer.read, recall.search]
+      write_mode: candidate
+      max_data_class: internal
+      output: { type: object, properties: { candidates: { type: array } } }
+      context_pack: { selectors: ["steps.cursor.output"], budget_tokens: 2000 }
+    - key: draft
+      title: Тіла, звірка з curated, чернетки нотаток
+      kind: model
+      executor_class: main
+      delegable: false
+      who_may_run: assistant
+    - key: go
+      title: GO людини на партію (частковий — перелік)
+      kind: human
+      who_may_run: human_only
+    - key: write
+      title: Запис затверджених нотаток
+      kind: model
+      executor_class: cheap
+      requires_approval: true
+      who_may_run: executor
+      max_data_class: internal
+    - key: validate
+      title: Валідатор нотаток
+      kind: script
+    - key: commit
+      title: Коміт лише записаного
+      kind: script
+      idempotency: "harvest:{{params.project}}:{{steps.cursor.output.seq}}"
+    - key: advance
+      title: Зсув курсора
+      kind: model
+      executor_class: main

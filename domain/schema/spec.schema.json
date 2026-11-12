@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "litopys/spec-meta",
+  "title": "Мета-схема файлів опису домену Litopys",
+  "$defs": {
+    "Scenario": { "type": "string", "pattern": "^R([1-9]|1[0-8])$" },
+    "Scenarios": { "type": "array", "items": { "$ref": "#/$defs/Scenario" }, "minItems": 1, "uniqueItems": true },
+    "Slice": { "type": "integer", "enum": [1, 2, 3] },
+    "DottedName": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" },
+    "JsonSchema": { "type": "object" },
+
+    "Event": {
+      "type": "object",
+      "required": ["slice", "scenarios", "origin", "entity_type"],
+      "properties": {
+        "slice": { "$ref": "#/$defs/Slice" },
+        "status": { "type": "string", "enum": ["planned"] },
+        "scenarios": { "$ref": "#/$defs/Scenarios" },
+        "origin": { "type": "array", "items": { "type": "string", "enum": ["command", "import", "consumer", "system"] }, "minItems": 1 },
+        "entity_type": { "type": "string" },
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "description": { "type": "string" },
+        "payload": { "$ref": "#/$defs/JsonSchema" }
+      },
+      "additionalProperties": false,
+      "if": { "properties": { "slice": { "const": 1 } } },
+      "then": { "required": ["schema_version", "payload"] }
+    },
+
+    "Verb": {
+      "type": "object",
+      "required": ["kind", "slice", "scenarios"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["command", "query"] },
+        "slice": { "$ref": "#/$defs/Slice" },
+        "status": { "type": "string", "enum": ["planned"] },
+        "scenarios": { "$ref": "#/$defs/Scenarios" },
+        "auth": { "type": "string", "enum": ["owner", "admin", "consumer"] },
+        "description": { "type": "string" },
+        "input": { "$ref": "#/$defs/JsonSchema" },
+        "output": { "$ref": "#/$defs/JsonSchema" },
+        "emits": { "type": "array", "items": { "$ref": "#/$defs/DottedName" }, "uniqueItems": true },
+        "idempotency": { "type": "string" },
+        "budget_ms": { "type": "integer", "minimum": 1 },
+        "errors": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" } },
+        "tool": { "$ref": "#/$defs/Tool" }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        { "if": { "properties": { "slice": { "const": 1 } } }, "then": { "required": ["input", "output"] } },
+        { "if": { "properties": { "kind": { "const": "command" } } }, "then": { "required": ["emits"], "properties": { "emits": { "minItems": 1 } } } },
+        { "if": { "properties": { "kind": { "const": "query" } } }, "then": { "not": { "required": ["emits"] } } }
+      ]
+    },
+
+    "Tool": {
+      "type": "object",
+      "description": "How the verb is shown to a model in the native API: English, WHEN / WHY / returns.",
+      "required": ["title", "description"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "description": { "type": "string", "minLength": 40, "maxLength": 1024 },
+        "chat": { "type": "boolean", "description": "Listed in the chat profile." },
+        "destructive": { "type": "boolean" },
+        "idempotent": { "type": "boolean" },
+        "params": { "type": "object", "description": "English descriptions of input properties for the model.", "additionalProperties": { "type": "string", "minLength": 3, "maxLength": 300 } },
+        "executor": {
+          "type": "object",
+          "description": "The variant an executor with a derived grant is listed: only these input properties, a short description.",
+          "required": ["params", "description"],
+          "properties": {
+            "params": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+            "description": { "type": "string", "minLength": 20, "maxLength": 300 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "ReadModel": {
+      "type": "object",
+      "required": ["slice", "scenarios", "fed_by"],
+      "properties": {
+        "slice": { "$ref": "#/$defs/Slice" },
+        "status": { "type": "string", "enum": ["planned"] },
+        "scenarios": { "$ref": "#/$defs/Scenarios" },
+        "description": { "type": "string" },
+        "fed_by": { "type": "array", "items": { "$ref": "#/$defs/DottedName" }, "uniqueItems": true }
+      },
+      "additionalProperties": { "$ref": "#/$defs/JsonSchema" }
+    },
+
+    "LinkType": {
+      "type": "object",
+      "required": ["layer", "slice", "scenarios", "description", "inverse", "ends", "scope", "on_end_closed"],
+      "properties": {
+        "layer": { "type": "string", "enum": ["work", "knowledge"] },
+        "slice": { "$ref": "#/$defs/Slice" },
+        "status": { "type": "string", "enum": ["planned"] },
+        "scenarios": { "$ref": "#/$defs/Scenarios" },
+        "description": { "type": "string" },
+        "inverse": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "ends": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "required": ["from", "to"],
+            "properties": { "from": { "type": "string", "pattern": "^([a-z][a-z_]*|[*])$" }, "to": { "type": "string", "pattern": "^([a-z][a-z_]*|[*])$" } },
+            "additionalProperties": false
+          }
+        },
+        "symmetric": { "type": "boolean" },
+        "transitive": { "type": "boolean" },
+        "acyclic": { "type": "boolean" },
+        "scope": { "type": "string", "enum": ["owner"] },
+        "projects": { "type": "string", "enum": ["any", "same", "different"] },
+        "on_end_closed": { "type": "string", "enum": ["keep", "satisfied"] }
+      },
+      "additionalProperties": false
+    },
+
+    "FacadeMapping": {
+      "type": "object",
+      "required": ["verbs"],
+      "properties": {
+        "verbs": { "type": "array", "items": { "$ref": "#/$defs/DottedName" } },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "properties": {
+    "events_file": {
+      "type": "object",
+      "required": ["spec_version", "events"],
+      "properties": {
+        "spec_version": { "type": "integer" },
+        "events": { "type": "object", "propertyNames": { "$ref": "#/$defs/DottedName" }, "additionalProperties": { "$ref": "#/$defs/Event" } }
+      },
+      "additionalProperties": false
+    },
+    "verbs_file": {
+      "type": "object",
+      "required": ["spec_version", "verbs"],
+      "properties": {
+        "spec_version": { "type": "integer" },
+        "defaults": { "type": "object" },
+        "verbs": { "type": "object", "propertyNames": { "$ref": "#/$defs/DottedName" }, "additionalProperties": { "$ref": "#/$defs/Verb" } },
+        "$defs": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "read_models_file": {
+      "type": "object",
+      "required": ["spec_version", "read_models"],
+      "properties": {
+        "spec_version": { "type": "integer" },
+        "read_models": { "type": "object", "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" }, "additionalProperties": { "$ref": "#/$defs/ReadModel" } }
+      },
+      "additionalProperties": false
+    },
+    "facade_file": {
+      "type": "object",
+      "required": ["spec_version", "facade", "contract", "scenarios", "mappings"],
+      "properties": {
+        "spec_version": { "type": "integer" },
+        "facade": { "type": "string" },
+        "contract": { "type": "string" },
+        "scenarios": { "$ref": "#/$defs/Scenarios" },
+        "mappings": { "type": "object", "additionalProperties": { "$ref": "#/$defs/FacadeMapping" } },
+        "import": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "link_types_file": {
+      "type": "object",
+      "required": ["spec_version", "link_types"],
+      "properties": {
+        "spec_version": { "type": "integer" },
+        "link_types": { "type": "object", "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" }, "additionalProperties": { "$ref": "#/$defs/LinkType" } }
+      },
+      "additionalProperties": false
+    },
+    "envelope_file": {
+      "type": "object",
+      "required": ["envelope_version", "scenarios", "schema"],
+      "properties": {
+        "envelope_version": { "type": "integer" },
+        "scenarios": { "$ref": "#/$defs/Scenarios" },
+        "schema": { "$ref": "#/$defs/JsonSchema" },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    }
+  }
+}

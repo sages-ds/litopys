@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "litopys": {
+      "type": "http",
+      "url": "${LITOPYS_URL}/v1/mcp",
+      "headers": { "Authorization": "Bearer ${LITOPYS_TOKEN}" }
+    }
+  }
+}

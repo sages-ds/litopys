@@ -1,0 +1,976 @@
+# Типи подій. Кожен: slice, scenarios (бритва), origin, payload (JSON Schema).
+# origin: command — емітить дієслово з verbs.yaml; import — разовий імпорт; consumer — асинхронний споживач журналу; system — сам сервер.
+# Зріз 1 — повні схеми. Зрізи 2–3 — status: planned, схема з'явиться разом із дієсловом.
+spec_version: 1
+events:
+
+  # ---------- Ідентичність і виконання ----------
+  actor.registered:
+    slice: 1
+    scenarios: [R3, R11, R16]
+    origin: [command, system]
+    entity_type: actor
+    schema_version: 1
+    description: Актор зареєстрований. Людина — при першому вході; агент/сервіс/автоматика — явно, з on_behalf_of.
+    payload:
+      type: object
+      required: [kind, display_name]
+      properties:
+        kind: { $ref: "types.yaml#/$defs/ActorKind" }
+        display_name: { type: string, maxLength: 200 }
+        on_behalf_of: { $ref: "types.yaml#/$defs/Id", description: "actor_id людини, від імені якої діє агент/автоматика. Для human — відсутнє." }
+        client: { $ref: "types.yaml#/$defs/ClientInfo" }
+        external_identity: { type: string, description: "email / принципал / ім'я хука — для зіставлення при імпорті та фасаді (writer)." }
+        executor: { $ref: "types.yaml#/$defs/ExecutorProfile", description: "Лише agent / service: запис реєстру виконавців (0024)." }
+      additionalProperties: false
+
+  actor.amended:
+    slice: 1
+    scenarios: [R11, R18]
+    origin: [command]
+    entity_type: actor
+    schema_version: 1
+    description: Змінено назву або профіль виконавця агента чи сервісу (0024). Профіль — повний новий; null — прибрати.
+    payload:
+      type: object
+      minProperties: 1
+      properties:
+        display_name: { type: string, maxLength: 200 }
+        executor: { oneOf: [ { $ref: "types.yaml#/$defs/ExecutorProfile" }, { type: "null" } ] }
+      additionalProperties: false
+
+  actor.revoked:
+    slice: 1
+    scenarios: [R11, R16]
+    origin: [command]
+    entity_type: actor
+    schema_version: 1
+    description: Актор більше не може писати. Історія лишається (інваріант 1).
+    payload:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string }
+      additionalProperties: false
+
+  run.started:
+    slice: 1
+    scenarios: [R11, R3]
+    origin: [command, system]
+    entity_type: run
+    schema_version: 1
+    description: Прогін — одиниця виконання (процес CLI, хук, суб-агент). Сервер відкриває неявно, якщо context.open прийшов без run_id.
+    payload:
+      type: object
+      required: [client]
+      properties:
+        parent_run_id: { $ref: "types.yaml#/$defs/Id", description: "Обов'язково для суб-агентів (R11)." }
+        client: { $ref: "types.yaml#/$defs/ClientInfo" }
+        purpose: { type: string, maxLength: 500 }
+      additionalProperties: false
+
+  run.finished:
+    slice: 1
+    scenarios: [R11]
+    origin: [command, system]
+    entity_type: run
+    schema_version: 1
+    payload:
+      type: object
+      required: [outcome]
+      properties:
+        outcome: { type: string, enum: [ok, failed, aborted, timeout] }
+        note: { type: string }
+      additionalProperties: false
+
+  context.opened:
+    slice: 1
+    scenarios: [R1, R14]
+    origin: [command]
+    entity_type: context
+    schema_version: 1
+    description: Контекст (сесія терміналу). Належить прогону/терміналу, не проєкту.
+    payload:
+      type: object
+      required: [project_id]
+      properties:
+        project_id: { $ref: "types.yaml#/$defs/Id" }
+        attached_to: { $ref: "types.yaml#/$defs/Id", description: "Якщо продовжено раніший контекст цього ж терміналу — його id." }
+      additionalProperties: false
+
+  context.closed:
+    slice: 1
+    scenarios: [R1, R14]
+    origin: [command, system]
+    entity_type: context
+    schema_version: 1
+    payload:
+      type: object
+      properties:
+        summary: { type: string, maxLength: 8192 }
+        auto: { type: boolean, description: "true — закрито автозакриттям за простоєм, не клієнтом." }
+        next_steps: { type: array, items: { type: string, maxLength: 300 }, maxItems: 5, description: "Що далі поза предметами; підсумки предметів — окремі statement.asserted type=outcome." }
+      additionalProperties: false
+
+  context.checkpointed:
+    slice: 1
+    scenarios: [R1, R14]
+    origin: [command]
+    entity_type: context
+    schema_version: 1
+    description: Проміжний або фінальний підсумок контексту. Зміни задач/фактів — ОКРЕМІ події, не частина чекпоінта.
+    payload:
+      type: object
+      required: [summary]
+      properties:
+        summary: { type: string, minLength: 1, maxLength: 8192 }
+        current: { type: string, maxLength: 2000, description: "Стан «де ми зараз» для стартового пакета." }
+      additionalProperties: false
+
+  # ---------- Твердження ----------
+  statement.asserted:
+    slice: 1
+    scenarios: [R1, R2, R3, R6, R7, R14]
+    origin: [command, import]
+    entity_type: statement
+    schema_version: 1
+    description: "Нове твердження. Запис нічого не обчислює (інваріант 4): дедуп, референти, ембединги — споживачі."
+    payload:
+      type: object
+      required: [project_id, type, title]
+      properties:
+        project_id: { $ref: "types.yaml#/$defs/Id" }
+        type: { $ref: "types.yaml#/$defs/StatementType" }
+        family: { $ref: "types.yaml#/$defs/Family", description: "З 0038: родина типу на момент запису; у старих подіях відсутня — проєктор бере мапу спадщини." }
+        title: { $ref: "types.yaml#/$defs/ShortText" }
+        body: { $ref: "types.yaml#/$defs/Body" }
+        concepts: { type: array, items: { $ref: "types.yaml#/$defs/Concept" }, maxItems: 20 }
+        files: { type: array, items: { type: string, maxLength: 512 }, maxItems: 50 }
+        external_ref: { type: string, maxLength: 512, description: "Ключ ідемпотентності клієнта і зв'язок частин задовгого тіла." }
+        part: { type: object, properties: { index: { type: integer, minimum: 1 }, total: { type: integer, minimum: 1 } }, description: "Якщо тіло розрізане сервером." }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Підняти клас проєкту для цього твердження (0023, Д9). Відсутній — клас проєкту." }
+        imported_from: { type: object, description: "Лише origin=import: {source, observation_id, created_at, type?}; source — назва профілю міграції (напр. pg-observations-v1), observation_id — id запису в джерелі; type — старий тип, коли мапа міграції його змінила, проєктор кладе його в legacy_type (0040).", additionalProperties: true }
+        outcome: { $ref: "types.yaml#/$defs/Outcome", description: "Лише type=outcome: предмет, стан, наступний крок, докази; пише session.close." }
+        refs: { $ref: "types.yaml#/$defs/Refs", description: "Як передано (0031); внутрішні — ще й окремі link.asserted mentions." }
+        fields: { $ref: "types.yaml#/$defs/StatementFields" }
+        num: { type: integer, minimum: 1, description: "R-<num> у межах власника: присвоює команда, імпорт — id джерела. Події до 0030 його не мають — проєктор бере facade.legacy_id." }
+        retain_until: { type: string, format: date, description: "З 0043: термін зберігання запису; разом з on_expiry." }
+        on_expiry: { type: string, enum: [retract, purge] }
+      additionalProperties: false
+
+  statement.amended:
+    slice: 1
+    scenarios: [R3, R7, R14]
+    origin: [command, import]
+    entity_type: statement
+    schema_version: 1
+    description: Новий вміст ТІЄЇ САМОЇ сутності (виправлення). Попередній вміст лишається в журналі (історія).
+    payload:
+      type: object
+      properties:
+        title: { $ref: "types.yaml#/$defs/ShortText" }
+        body: { $ref: "types.yaml#/$defs/Body" }
+        type: { $ref: "types.yaml#/$defs/StatementType" }
+        family: { $ref: "types.yaml#/$defs/Family", description: "З 0038: родина типу на момент запису; у старих подіях відсутня — проєктор бере мапу спадщини." }
+        concepts: { type: array, items: { $ref: "types.yaml#/$defs/Concept" } }
+        files: { type: array, items: { type: string } }
+        reason: { type: string, maxLength: 500 }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Лише вищий за чинний клас твердження (0023)." }
+        refs: { $ref: "types.yaml#/$defs/Refs", description: "Новий список (0031)." }
+        fields: { $ref: "types.yaml#/$defs/StatementFields", description: "Новий набір полів повністю; {} — прибрати." }
+        legacy_type: { type: string, maxLength: 64, description: "Лише origin=import, з type (0040): старий тип версії, коли мапа міграції його змінила; новий type без нього очищає legacy_type запису." }
+      additionalProperties: false
+      minProperties: 1
+
+  statement.retracted:
+    slice: 1
+    scenarios: [R3, R7, R14]
+    origin: [command, import]
+    entity_type: statement
+    schema_version: 1
+    description: Автор відкликав. Це «м'яке видалення» чинного сервісу. Читання повертає зі статусом retracted, не 404.
+    payload:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false
+
+  statement.retention_set:
+    slice: 1
+    scenarios: [R14]
+    origin: [command]
+    entity_type: statement
+    schema_version: 1
+    description: "Термін зберігання одного запису поставлено, замінено чи знято (retain_until \"\") — 0043. Не нова версія вмісту; автор події — той, від чийого імені worker діятиме в цей день."
+    payload:
+      type: object
+      required: [retain_until]
+      properties:
+        retain_until: { type: string, description: "YYYY-MM-DD (Europe/Kyiv) або \"\" — знято." }
+        on_expiry: { type: string, enum: [retract, purge] }
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false
+
+  statement.reinstated:
+    slice: 1
+    scenarios: [R14]
+    origin: [command, import]
+    entity_type: statement
+    schema_version: 1
+    description: Відкликання скасовано (memory_restore_observation). Потрібне лише фасаду; у новому API — окреме дієслово.
+    payload:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false
+
+  statement.superseded:
+    slice: 1
+    scenarios: [R6, R7, R2, R3]
+    origin: [command, consumer]
+    entity_type: statement
+    schema_version: 1
+    description: Подія на СТАРОМУ твердженні — його замінено новим. Заміна ≠ конфлікт (R9). Нове твердження — окремий statement.asserted, емітиться тим самим дієсловом.
+    payload:
+      type: object
+      required: [superseded_by]
+      properties:
+        superseded_by: { $ref: "types.yaml#/$defs/Id" }
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false
+
+  statement.folded:
+    slice: 3
+    status: planned
+    scenarios: [R1, R13]
+    origin: [command, consumer]
+    entity_type: statement
+    description: Згорнуте в підсумок — виходить зі стандартного пакета, лишається в search/read/timeline. Зворотне — statement.unfolded.
+
+  statement.unfolded:
+    slice: 3
+    status: planned
+    scenarios: [R13]
+    origin: [command]
+    entity_type: statement
+
+  summary.produced:
+    slice: 3
+    status: planned
+    scenarios: [R1, R7, R13]
+    origin: [command, consumer]
+    entity_type: summary
+    description: Підсумок — сам є твердженням і покриває перелік тверджень (link derived_from).
+
+  # ---------- Обґрунтування (зріз 2) ----------
+  evidence.attached:
+    slice: 2
+    status: planned
+    scenarios: [R4]
+    origin: [command]
+    entity_type: statement
+    description: "observed | confirmed | inferred | reported — з посиланням на джерело."
+  attestation.given:
+    slice: 2
+    status: planned
+    scenarios: [R4, R10]
+    origin: [command, consumer]
+    entity_type: statement
+    description: Інший актор підтверджує. Дублікат від іншого актора стає саме цією подією (інваріант 6).
+  attestation.withdrawn:
+    slice: 2
+    status: planned
+    scenarios: [R4]
+    origin: [command]
+    entity_type: statement
+  conflict.observed:
+    slice: 2
+    status: planned
+    scenarios: [R9]
+    origin: [command, consumer]
+    entity_type: statement
+    description: Два чинні твердження про той самий референт із несумісними значеннями.
+  conflict.resolved:
+    slice: 2
+    status: planned
+    scenarios: [R9]
+    origin: [command]
+    entity_type: statement
+
+  # ---------- Граф ----------
+  link.asserted:
+    slice: 1
+    scenarios: [R7, R9, R10]
+    origin: [command, consumer, import]
+    entity_type: link
+    schema_version: 1
+    description: Типізоване ребро між сутностями. У зрізі 1 — related | contradicts | duplicates | confirms | about | derived_from.
+    payload:
+      type: object
+      required: [from, to, relation]
+      properties:
+        from: { $ref: "types.yaml#/$defs/EntityRef" }
+        to: { $ref: "types.yaml#/$defs/EntityRef" }
+        relation: { $ref: "types.yaml#/$defs/LinkRelation" }
+        note: { type: string, maxLength: 500 }
+      additionalProperties: false
+
+  link.retired:
+    slice: 1
+    scenarios: [R7]
+    origin: [command]
+    entity_type: link
+    schema_version: 1
+    payload:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false
+
+  referent.registered:
+    slice: 2
+    status: planned
+    scenarios: [R9, R11]
+    origin: [command, consumer]
+    entity_type: referent
+    description: "Мінімум зрізу 2: kind (з конфігурації), name, aliases. Злиття/вихід — з ai-knowledge-fabric пізніше."
+  referent.merged:
+    slice: 2
+    status: planned
+    scenarios: [R9]
+    origin: [command]
+    entity_type: referent
+  referent.retired:
+    slice: 2
+    status: planned
+    scenarios: [R9]
+    origin: [command]
+    entity_type: referent
+  subject.registered:
+    slice: 2
+    status: planned
+    scenarios: [R11]
+    origin: [command]
+    entity_type: subject
+  edge.asserted:
+    slice: 2
+    status: planned
+    scenarios: [R9, R11]
+    origin: [command]
+    entity_type: edge
+    description: Ребро графу знання між референтами/суб'єктами; тип — з конфігурації.
+  edge.retired:
+    slice: 2
+    status: planned
+    scenarios: [R9]
+    origin: [command]
+    entity_type: edge
+
+  # ---------- Робочий стан ----------
+  project.declared:
+    slice: 1
+    scenarios: [R1, R8, R14]
+    origin: [command, import]
+    entity_type: project
+    schema_version: 1
+    payload:
+      type: object
+      required: [name]
+      properties:
+        name: { $ref: "types.yaml#/$defs/ProjectName" }
+        title: { $ref: "types.yaml#/$defs/ProjectTitle", description: "Людська назва; відсутня — дорівнює name. Additive, schema_version 1." }
+        summary: { type: string, maxLength: 4000 }
+        repo_url: { type: string, maxLength: 512 }
+        auto_created: { type: boolean, description: "true — створено хуком за назвою теки, не людиною." }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Клас усього в проєкті (0023, Д9); відсутній — internal." }
+        scope: { type: string, maxLength: 200, description: "Межі проєкту одним рядком (0041): що сюди належить." }
+      additionalProperties: false
+
+  project.amended:
+    slice: 1
+    scenarios: [R1, R14]
+    origin: [command, import]
+    entity_type: project
+    schema_version: 1
+    payload:
+      type: object
+      minProperties: 1
+      properties:
+        name: { $ref: "types.yaml#/$defs/ProjectName" }
+        title: { $ref: "types.yaml#/$defs/ProjectTitle" }
+        summary: { type: string, maxLength: 4000 }
+        repo_url: { type: string, maxLength: 512 }
+        labels: { type: array, maxItems: 20, items: { $ref: "types.yaml#/$defs/Label" }, description: "Мітки проєкту для правил політики (project_label_deny). Повний новий набір." }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Новий клас проєкту (власник може і знизити); підняття записів лишаються." }
+        scope: { type: string, maxLength: 200, description: "Межі проєкту одним рядком (0041): що сюди належить." }
+      additionalProperties: false
+
+  project.transitioned:
+    slice: 1
+    scenarios: [R1, R8, R14]
+    origin: [command, import]
+    entity_type: project
+    schema_version: 1
+    payload:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: "types.yaml#/$defs/ProjectStatus" }
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false
+
+  task.declared:
+    slice: 1
+    scenarios: [R1, R8, R14]
+    origin: [command, import]
+    entity_type: task
+    schema_version: 1
+    description: Задача за моделлю todo v2. num присвоює команда — у payload, тож replay детермінований; імпорт зберігає num джерела.
+    payload:
+      type: object
+      required: [project_id, num, title, status]
+      properties:
+        project_id: { $ref: "types.yaml#/$defs/Id" }
+        num: { $ref: "types.yaml#/$defs/TaskNum" }
+        status: { $ref: "types.yaml#/$defs/TaskOpenStatus" }
+        title: { $ref: "types.yaml#/$defs/ShortText" }
+        body: { type: string, maxLength: 8192 }
+        kind: { $ref: "types.yaml#/$defs/TaskKind" }
+        priority: { $ref: "types.yaml#/$defs/TaskPriority" }
+        rank: { type: integer }
+        role: { $ref: "types.yaml#/$defs/TaskRole" }
+        owner: { type: string, maxLength: 100, description: "Застаріле вільне поле (фасад 1.19, імпорт). Нове — owner_project і assignee." }
+        owner_project: { $ref: "types.yaml#/$defs/Id", description: "Проєкт, що виконує задачу, коли це не її власний проєкт. Відсутнє — власний." }
+        assignee: { $ref: "types.yaml#/$defs/TaskAssignee" }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Підняти клас проєкту для цієї задачі (0023). Відсутній — клас проєкту." }
+        due: { type: string, format: date }
+        parent: { $ref: "types.yaml#/$defs/TaskNum", description: "num батьківської задачі (епік) у тому ж проєкті." }
+        acceptance: { type: string, maxLength: 4000 }
+        severity: { $ref: "types.yaml#/$defs/Severity" }
+        labels: { type: array, items: { type: string, minLength: 1, maxLength: 60 }, maxItems: 20 }
+        refs: { type: array, items: { type: string, minLength: 1, maxLength: 300 }, maxItems: 20 }
+      additionalProperties: false
+
+  task.amended:
+    slice: 1
+    scenarios: [R1, R8, R14]
+    origin: [command, import]
+    entity_type: task
+    schema_version: 1
+    description: Зміна полів відкритої або закритої задачі. Перехід між ВІДКРИТИМИ статусами — тут; закриття — task.closed, повторне відкриття — task.reopened. null очищає необов'язкове поле.
+    payload:
+      type: object
+      minProperties: 1
+      properties:
+        status: { $ref: "types.yaml#/$defs/TaskOpenStatus" }
+        title: { $ref: "types.yaml#/$defs/ShortText" }
+        body: { type: string, maxLength: 8192 }
+        kind: { $ref: "types.yaml#/$defs/TaskKind" }
+        priority: { oneOf: [ { $ref: "types.yaml#/$defs/TaskPriority" }, { type: "null" } ] }
+        rank: { type: integer }
+        role: { $ref: "types.yaml#/$defs/TaskRole" }
+        owner: { type: string, maxLength: 100, description: "Застаріле вільне поле (фасад 1.19, імпорт). Нове — owner_project і assignee." }
+        owner_project: { oneOf: [ { $ref: "types.yaml#/$defs/Id" }, { type: "null" } ], description: "null — виконує власний проєкт." }
+        assignee: { oneOf: [ { $ref: "types.yaml#/$defs/TaskAssignee" }, { type: "null" } ] }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Лише вищий за чинний клас задачі (0023); не очищується." }
+        due: { type: string, format: date }
+        parent: { $ref: "types.yaml#/$defs/TaskNum", description: "num батьківської задачі (епік) у тому ж проєкті." }
+        acceptance: { type: string, maxLength: 4000 }
+        severity: { $ref: "types.yaml#/$defs/Severity" }
+        labels: { type: array, items: { type: string, minLength: 1, maxLength: 60 }, maxItems: 20 }
+        refs: { type: array, items: { type: string, minLength: 1, maxLength: 300 }, maxItems: 20 }
+        resolution: { type: [string, "null"], maxLength: 4000 }
+      additionalProperties: false
+
+  task.closed:
+    slice: 1
+    scenarios: [R1, R8, R14]
+    origin: [command, import]
+    entity_type: task
+    schema_version: 1
+    payload:
+      type: object
+      required: [outcome]
+      properties:
+        outcome: { $ref: "types.yaml#/$defs/TaskOutcome", description: "Статус закриття: done — виконано, dropped — вирішили не робити." }
+        resolution: { type: string, maxLength: 4000, description: "Чим закінчилось." }
+      additionalProperties: false
+
+  task.reopened:
+    slice: 1
+    scenarios: [R8, R14]
+    origin: [command, import]
+    entity_type: task
+    schema_version: 1
+    payload:
+      type: object
+      properties:
+        status: { $ref: "types.yaml#/$defs/TaskOpenStatus", description: "Статус після відкриття; за замовчуванням open." }
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false
+
+  task.retracted:
+    slice: 1
+    scenarios: [R8, R14]
+    origin: [command]
+    entity_type: task
+    schema_version: 1
+    description: Задачу створено помилково (дубль, не той проєкт) — зникає зі списків, історія лишається в журналі; num не перевикористовується. Рішення «не робимо» — task.closed(dropped), не це.
+    payload:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+      additionalProperties: false
+
+  fact.recorded:
+    slice: 1
+    scenarios: [R1, R12, R14]
+    origin: [command, import]
+    entity_type: fact
+    schema_version: 1
+    description: Типізований факт проєкту (project_items чинного сервісу). Той самий key — нова подія замінює попередню в проєкції. Секрет — ЛИШЕ secret_ref.
+    payload:
+      type: object
+      required: [project_id, kind, key]
+      properties:
+        project_id: { $ref: "types.yaml#/$defs/Id" }
+        kind: { $ref: "types.yaml#/$defs/FactKind" }
+        key: { type: string, minLength: 1, maxLength: 200 }
+        value: { type: string, maxLength: 8192 }
+        secret_ref: { type: string, maxLength: 512, description: "Посилання в сховище секретів (OpenBao path / Vaultwarden item). Обов'язкове для kind=credential, value тоді заборонене." }
+        source_id: { $ref: "types.yaml#/$defs/Id", description: "Запис, з якого взято факт (0047): замінили чи відкликали — факт читається як stale." }
+      additionalProperties: false
+      allOf:
+        - if: { properties: { kind: { const: credential } }, required: [kind] }
+          then: { required: [secret_ref], not: { required: [value] } }
+
+  attachment.added:
+    slice: 1
+    scenarios: [R14]
+    origin: [command]
+    entity_type: attachment
+    schema_version: 1
+    description: >-
+      Файл додано до проєкту: байти — у теці даних апки за SHA-256, не в журналі; тут лише те, що
+      їх описує. Той самий файл у тому самому проєкті вдруге — без нової події.
+    payload:
+      type: object
+      required: [project_id, sha256, name, mime, size]
+      properties:
+        project_id: { $ref: "types.yaml#/$defs/Id" }
+        sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+        name: { type: string, minLength: 1, maxLength: 255 }
+        mime: { type: string, minLength: 1, maxLength: 100 }
+        size: { type: integer, minimum: 0 }
+      additionalProperties: false
+
+  fact.retired:
+    slice: 1
+    scenarios: [R1, R14]
+    origin: [command]
+    entity_type: fact
+    schema_version: 1
+    payload:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false
+
+  fact.confirmed:
+    slice: 1
+    scenarios: [R14]
+    origin: [system] # no API verb on purpose: only the viewer's confirmation handler writes it, a model has no tool for it
+    entity_type: fact
+    schema_version: 1
+    description: "Людина підтвердила поза чатом мітку зберігання, яку модель лише запропонувала: purge або applies_to record. Пише лише обробник viewer (вхід через Keycloak OIDC); підтверджує саме ту версію мітки, що записала record_event_id."
+    payload:
+      type: object
+      required: [record_event_id, channel]
+      properties:
+        record_event_id: { type: string, format: uuid, description: "fact.recorded, яку людина бачила на сторінці підтвердження." }
+        channel: { type: string, enum: [viewer] }
+        impact: { type: object, properties: { records: { type: integer }, tasks: { type: integer } }, additionalProperties: false, description: "Вплив, показаний людині (перший прохід)." }
+      additionalProperties: false
+
+  # ---------- Споживачі журналу ----------
+  consumer.cursor_set:
+    slice: 1
+    scenarios: [R1, R5, R14]
+    origin: [command]
+    entity_type: consumer
+    schema_version: 1
+    description: Іменований споживач (vault-harvest, mirror, projector) зафіксував позицію. Борг споживача в стартовому пакеті = last_seq − cursor.
+    payload:
+      type: object
+      required: [consumer, seq]
+      properties:
+        consumer: { type: string, pattern: "^[a-z][a-z0-9-]*$", maxLength: 100 }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+
+  # ---------- Нумерація ----------
+  numbering.reserved:
+    slice: 1
+    scenarios: [R5, R16]
+    origin: [import]
+    entity_type: actor
+    schema_version: 1
+    description: >-
+      Міграція резервує номери, які джерело вже видало: floor — найбільший виданий номер.
+      R — записи власника (сутність — власник), T — задачі проєкту (project_id). Команда видає GREATEST(max(num),
+      floor) + 1, тож номер стертої вгорі послідовності джерела не дістається новій сутності. Підлога лише росте.
+    payload:
+      type: object
+      required: [kind, floor]
+      properties:
+        kind: { enum: [R, T] }
+        floor: { type: integer, minimum: 1 }
+        project_id: { $ref: "types.yaml#/$defs/Id", description: "Лише для T — проєкт; R — без нього." }
+      additionalProperties: false
+
+  # ---------- Спільний простір (зріз 3) ----------
+  statement.published:
+    slice: 3
+    status: planned
+    scenarios: [R12]
+    origin: [command]
+    entity_type: publication
+    description: Публікація = НОВЕ твердження у власності організації, зв'язане з джерелом; приватне не копіюється.
+  publication.withdrawn:
+    slice: 3
+    status: planned
+    scenarios: [R12]
+    origin: [command]
+    entity_type: publication
+  visibility.granted:
+    slice: 3
+    status: planned
+    scenarios: [R12, R15]
+    origin: [command]
+    entity_type: publication
+  visibility.revoked:
+    slice: 3
+    status: planned
+    scenarios: [R12, R15]
+    origin: [command]
+    entity_type: publication
+
+  # ---------- Політика і гігієна ----------
+  policy.set:
+    slice: 1
+    scenarios: [R4, R12, R15]
+    origin: [command]
+    entity_type: policy
+    schema_version: 1
+    description: "Правило політики видимості. entity_id детермінований від (scope, власник, name): повторне policy.set з тим самим name замінює правило; active=false вимикає. Без жодного правила діє вбудоване «власник бачить усе своє»."
+    payload:
+      type: object
+      required: [name, scope, rule, active]
+      properties:
+        name: { type: string, pattern: "^[a-z][a-z0-9-]{0,62}$" }
+        scope: { enum: [tenant, owner], description: "tenant — лише admin, діє на всіх людей тенанту; owner — людина для своїх даних." }
+        rule: { $ref: "types.yaml#/$defs/PolicyRule" }
+        active: { type: boolean }
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false
+
+  journal.purged:
+    slice: 1
+    scenarios: [R5, R16]
+    origin: [command, system]
+    entity_type: statement
+    schema_version: 1
+    description: ФІЗИЧНЕ стирання вмісту (compliance). Сама подія лишається; payload попередніх подій цієї сутності замінюється на маркер. Споживачі зобов'язані стерти своє.
+    payload:
+      type: object
+      required: [target, reason]
+      properties:
+        target: { $ref: "types.yaml#/$defs/EntityRef" }
+        reason: { type: string, maxLength: 1000 }
+        legal_basis: { type: string, maxLength: 200 }
+        purged_event_ids: { type: array, items: { $ref: "types.yaml#/$defs/Id" } }
+      additionalProperties: false
+
+  journal.quarantined:
+    slice: 1
+    scenarios: [R5, R16]
+    origin: [command]
+    entity_type: statement
+    schema_version: 1
+    description: >-
+      Карантин: вміст сутності (запис або задача) зникає з усіх читань, пошуку й payload журналу назовні,
+      але не стирається. entity_type/entity_id події — ціль. Споживачі прибирають вміст з видачі.
+    payload:
+      type: object
+      required: [target, reason]
+      properties:
+        target: { $ref: "types.yaml#/$defs/EntityRef" }
+        reason: { type: string, maxLength: 1000, description: "Замасковано privacy при записі." }
+        secret: { type: boolean, description: "У вмісті секрет — кандидат на стирання (пропозиція видалення)." }
+      additionalProperties: false
+  journal.released:
+    slice: 1
+    scenarios: [R5, R16]
+    origin: [command]
+    entity_type: statement
+    schema_version: 1
+    description: Зняття карантину людиною. Споживачі можуть показувати вміст знову.
+    payload:
+      type: object
+      required: [target, reason]
+      properties:
+        target: { $ref: "types.yaml#/$defs/EntityRef" }
+        reason: { type: string, maxLength: 1000 }
+      additionalProperties: false
+
+  deletion.proposed:
+    slice: 1
+    scenarios: [R5, R16]
+    origin: [command]
+    entity_type: deletion
+    schema_version: 1
+    description: >-
+      Пропозиція видалення D-N: відкликати чи стерти запис або задачу, зі знімком впливу (кількості
+      вхідних зв'язків за relation і підсумків сесій), на який людина дає GO. Карантин із secret створює її сам.
+    payload:
+      type: object
+      required: [project_id, num, target, action, reason, impact]
+      properties:
+        project_id: { $ref: "types.yaml#/$defs/Id" }
+        num: { type: integer, minimum: 1 }
+        target: { $ref: "types.yaml#/$defs/EntityRef" }
+        action: { enum: [retract, purge] }
+        reason: { type: string, maxLength: 1000, description: "Замасковано privacy при записі." }
+        secret: { type: boolean }
+        impact: { type: object, additionalProperties: { type: integer, minimum: 0 } }
+      additionalProperties: false
+  deletion.approved:
+    slice: 1
+    scenarios: [R5, R16]
+    origin: [command]
+    entity_type: deletion
+    schema_version: 1
+    description: GO людини на пропозицію. Відкликання виконується тією ж командою; стирання — worker (deletion.executed).
+    payload:
+      type: object
+      properties:
+        note: { type: string, maxLength: 1000 }
+      additionalProperties: false
+  deletion.rejected:
+    slice: 1
+    scenarios: [R5, R16]
+    origin: [command]
+    entity_type: deletion
+    schema_version: 1
+    description: Людина відхилила пропозицію; нічого не видаляється.
+    payload:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, maxLength: 1000 }
+      additionalProperties: false
+  deletion.executed:
+    slice: 1
+    scenarios: [R5, R16]
+    origin: [system]
+    entity_type: deletion
+    schema_version: 1
+    description: Схвалене стирання виконано (litopys worker, рішення П1) — у тій самій транзакції, що journal.purged.
+    payload:
+      type: object
+      properties:
+        purge_seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+
+  # ---------- Робочі процеси (зріз 2 — назви й сценарії, схеми з реалізацією) ----------
+  workflow.declared:
+    slice: 1
+    scenarios: [R17]
+    origin: [command]
+    entity_type: workflow
+    schema_version: 1
+    description: Новий процес (ключ, назва, призначення, проєкт-власник) і його версія 1 — повне визначення кроків.
+    payload:
+      type: object
+      required: [project_id, key, title, definition]
+      properties:
+        project_id: { $ref: "types.yaml#/$defs/Id" }
+        key: { $ref: "types.yaml#/$defs/WorkflowKey" }
+        title: { $ref: "types.yaml#/$defs/ShortText" }
+        purpose: { type: string, maxLength: 2000 }
+        definition: { $ref: "types.yaml#/$defs/WorkflowDefinition" }
+        num: { type: integer, minimum: 1, description: "W-<num> у межах проєкту; події до 0030 — за порядком seq." }
+      additionalProperties: false
+  workflow.amended:
+    slice: 1
+    scenarios: [R17]
+    origin: [command]
+    entity_type: workflow
+    schema_version: 1
+    description: Лише метадані процесу; кроки не змінюються. null очищає purpose.
+    payload:
+      type: object
+      minProperties: 1
+      properties:
+        title: { $ref: "types.yaml#/$defs/ShortText" }
+        purpose: { type: [string, "null"], maxLength: 2000 }
+      additionalProperties: false
+  workflow.superseded:
+    slice: 1
+    scenarios: [R17]
+    origin: [command]
+    entity_type: workflow
+    schema_version: 1
+    description: Нова незмінна версія визначення; виконання, що йдуть, лишаються на своїй версії.
+    payload:
+      type: object
+      required: [version, definition]
+      properties:
+        version: { type: integer, minimum: 2 }
+        definition: { $ref: "types.yaml#/$defs/WorkflowDefinition" }
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false
+  workflow.retired:
+    slice: 1
+    scenarios: [R17]
+    origin: [command]
+    entity_type: workflow
+    schema_version: 1
+    description: Процес більше не стартує; виконання, що йдуть, доводяться. Версії лишаються читабельними.
+    payload:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false
+  execution.started:
+    slice: 1
+    scenarios: [R17]
+    origin: [command]
+    entity_type: execution
+    schema_version: 1
+    description: Екземпляр процесу на версії — параметри, задача, батьківське виконання (вкладення).
+    payload:
+      type: object
+      required: [workflow_id, version, project_id]
+      properties:
+        workflow_id: { $ref: "types.yaml#/$defs/Id" }
+        version: { type: integer, minimum: 1 }
+        project_id: { $ref: "types.yaml#/$defs/Id" }
+        params: { type: object }
+        task_id: { $ref: "types.yaml#/$defs/Id" }
+        parent_execution_id: { $ref: "types.yaml#/$defs/Id" }
+        parent_step_key: { $ref: "types.yaml#/$defs/StepKey" }
+        num: { type: integer, minimum: 1, description: "X-<num> у межах проєкту; події до 0030 — за порядком seq." }
+      additionalProperties: false
+  execution.closed:
+    slice: 1
+    scenarios: [R17]
+    origin: [command, system]
+    entity_type: execution
+    schema_version: 1
+    description: completed / failed / canceled + підсумок; system — останній крок завершено (step.finish).
+    payload:
+      type: object
+      required: [outcome]
+      properties:
+        outcome: { type: string, enum: [completed, failed, canceled] }
+        summary: { type: string, maxLength: 2000 }
+      additionalProperties: false
+  step.started:
+    slice: 1
+    scenarios: [R17, R18]
+    origin: [command]
+    entity_type: attempt
+    schema_version: 1
+    description: Спроба кроку взята в оренду одним виконавцем; прогін, актор і модель — у конверті.
+    payload:
+      type: object
+      required: [execution_id, step_key, attempt, lease_until]
+      properties:
+        execution_id: { $ref: "types.yaml#/$defs/Id" }
+        step_key: { $ref: "types.yaml#/$defs/StepKey" }
+        attempt: { type: integer, minimum: 1 }
+        lease_until: { $ref: "types.yaml#/$defs/Timestamp" }
+        approval_id: { $ref: "types.yaml#/$defs/Id", description: "Затвердження, яке ця спроба використала (requires_approval)." }
+      additionalProperties: false
+  step.checkpointed:
+    slice: 1
+    scenarios: [R17, R18]
+    origin: [command]
+    entity_type: attempt
+    schema_version: 1
+    description: Heartbeat (продовження оренди) і проміжний вихід.
+    payload:
+      type: object
+      required: [lease_until]
+      properties:
+        lease_until: { $ref: "types.yaml#/$defs/Timestamp" }
+        output: { type: object }
+        note: { type: string, maxLength: 1000 }
+      additionalProperties: false
+  step.finished:
+    slice: 1
+    scenarios: [R17, R18]
+    origin: [command, system]
+    entity_type: attempt
+    schema_version: 1
+    description: Фінальний стан спроби і вихід; system — прострочена оренда, яку замінила нова спроба (failed, lease_expired).
+    payload:
+      type: object
+      required: [state]
+      properties:
+        state: { type: string, enum: [completed, failed, canceled, rejected] }
+        output: { type: object }
+        error: { type: string, maxLength: 2000 }
+      additionalProperties: false
+  step.delegated:
+    slice: 1
+    scenarios: [R11, R18]
+    origin: [command]
+    entity_type: execution
+    schema_version: 1
+    description: Оркестратор делегував крок виконавцю — похідний грант. Секрету тут немає; лише хто, що, до коли й ланцюжок.
+    payload:
+      type: object
+      required: [execution_id, step_key, executor_actor_id, token_id, depth, expires_at, verbs, write_mode]
+      properties:
+        execution_id: { $ref: "types.yaml#/$defs/Id" }
+        step_key: { $ref: "types.yaml#/$defs/StepKey" }
+        executor_actor_id: { $ref: "types.yaml#/$defs/Id" }
+        token_id: { $ref: "types.yaml#/$defs/Id" }
+        parent_token_id: { $ref: "types.yaml#/$defs/Id" }
+        depth: { type: integer, minimum: 1, maximum: 3 }
+        expires_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        verbs: { type: array, items: { type: string } }
+        write_mode: { type: string, enum: [direct, candidate] }
+        max_data_class: { $ref: "types.yaml#/$defs/DataClass" }
+      additionalProperties: false
+  approval.granted:
+    slice: 1
+    scenarios: [R17, R18]
+    origin: [command]
+    entity_type: approval
+    schema_version: 1
+    description: GO людини на крок виконання (повний або частковий — перелік елементів). Дає лише людина (Д7).
+    payload:
+      type: object
+      required: [execution_id, step_key]
+      properties:
+        execution_id: { $ref: "types.yaml#/$defs/Id" }
+        step_key: { $ref: "types.yaml#/$defs/StepKey" }
+        items: { type: array, maxItems: 100, items: { type: string, minLength: 1, maxLength: 200 } }
+        note: { type: string, maxLength: 1000 }
+      additionalProperties: false
+  approval.revoked:
+    slice: 1
+    scenarios: [R17]
+    origin: [command]
+    entity_type: approval
+    schema_version: 1
+    description: Відкликання затвердження до його використання.
+    payload:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 500 }
+      additionalProperties: false

@@ -1,0 +1,191 @@
+# Типи зв'язків. Робочий шар — вбудовані типи тут (сувора семантика, перевіряє код);
+# шар знання — реєстр типів з конфігурації (зріз 2); поки що його типи теж оголошено тут, щоб
+# одна таблиця давала коду перелік і кінці.
+#
+# Не тут: parent — поле задачі (склад у межах проєкту), supersedes — окрема подія statement.superseded.
+#
+# Властивості:
+#   layer        work | knowledge
+#   inverse      назва, якою зв'язок читається з кінця «куди» (depends_on ↔ blocks)
+#   ends         допустимі пари типів кінців; "*" — будь-яка сутність
+#   symmetric    A→B означає й B→A (ставиться один раз; зворотний дубль відхиляється)
+#   transitive   читання може йти ланцюжком (обхід графу)
+#   acyclic      цикл відхиляється при постановці (по всьому ланцюжку цього типу)
+#   scope        owner — обидва кінці належать одному власнику (між власниками — платний модуль)
+#   projects     для кінців-задач: any | same | different (handoff — лише між різними проєктами)
+#   on_end_closed  keep — нічого не стається; satisfied — зв'язок лишається, але читається як задоволений,
+#                коли кінець «куди» закрито (задача done / dropped)
+#   slice, status, scenarios — як у решті домену (бритва)
+spec_version: 1
+link_types:
+
+  # ---------- робочий шар ----------
+  depends_on:
+    layer: work
+    slice: 1
+    scenarios: [R7, R8, R14]
+    description: Очікує на. Проєкт залежить від проєкту; задача чекає на задачу (свого чи іншого проєкту) — від того, хто чекає, до того, на що чекає.
+    inverse: blocks
+    ends: [{ from: project, to: project }, { from: task, to: task }]
+    transitive: true
+    acyclic: true
+    scope: owner
+    projects: any
+    on_end_closed: satisfied
+
+  handoff:
+    layer: work
+    slice: 1
+    scenarios: [R8, R14]
+    description: Передача виконання (сім'я 2; портфельне правило «один власник, дзеркало у споживача»). Від задачі проєкту-споживача (дзеркало) до задачі проєкту-власника, яка виконує роботу. Лише між різними проєктами.
+    inverse: handed_off_from
+    ends: [{ from: task, to: task }]
+    acyclic: true
+    scope: owner
+    projects: different
+    on_end_closed: satisfied
+
+  duplicates:
+    layer: work
+    slice: 1
+    scenarios: [R7, R14]
+    description: Те саме двічі — задача й задача, твердження й твердження. Симетричний.
+    inverse: duplicates
+    ends: [{ from: task, to: task }, { from: statement, to: statement }]
+    symmetric: true
+    scope: owner
+    projects: any
+    on_end_closed: keep
+
+  predecessor_of:
+    layer: work
+    slice: 1
+    scenarios: [R7]
+    description: Проєкт-попередник → проєкт-наступник (еволюція).
+    inverse: successor_of
+    ends: [{ from: project, to: project }]
+    acyclic: true
+    scope: owner
+    on_end_closed: keep
+
+  parallel_line_of:
+    layer: work
+    slice: 1
+    scenarios: [R7]
+    description: Паралельні лінії однієї роботи (форк ↔ upstream, корп ↔ персональний). Симетричний.
+    inverse: parallel_line_of
+    ends: [{ from: project, to: project }]
+    symmetric: true
+    scope: owner
+    on_end_closed: keep
+
+  member_of:
+    layer: work
+    slice: 1
+    scenarios: [R7]
+    description: Проєкт належить простору (шар projects).
+    inverse: has_member
+    ends: [{ from: project, to: project }]
+    acyclic: true
+    scope: owner
+    on_end_closed: keep
+
+  related:
+    layer: work
+    slice: 1
+    scenarios: [R7]
+    description: Слабка асоціація без логіки — розширення контексту. Симетричний.
+    inverse: related
+    ends: [{ from: "*", to: "*" }]
+    symmetric: true
+    scope: owner
+    projects: any
+    on_end_closed: keep
+
+  produced_by:
+    layer: work
+    slice: 2
+    status: planned
+    scenarios: [R11]
+    description: Результат → крок виконання, що його виробив. Ставить сервер з конверта, не руками.
+    inverse: produced
+    ends: [{ from: "*", to: step }]
+    scope: owner
+    on_end_closed: keep
+
+  instance_of:
+    layer: work
+    slice: 2
+    status: planned
+    scenarios: [R11]
+    description: Виконання → версія процесу. Ставить сервер з execution.started.
+    inverse: has_instance
+    ends: [{ from: execution, to: workflow }]
+    scope: owner
+    on_end_closed: keep
+
+  # ---------- шар знання (до реєстру — тут) ----------
+  resolves:
+    layer: work
+    slice: 1
+    scenarios: [R7, R14]
+    description: >-
+      Відповідь закриває питання чи знятий ризик (прожарка r1): від запису-відповіді (рішення, знахідка,
+      підсумок) до запису-питання чи ризику. Закрите питання зникає з відкритих (work_open_items, topic_resume),
+      історія лишається; зняти — link_retire.
+    inverse: resolved_by
+    ends: [{ from: statement, to: statement }]
+    scope: owner
+    on_end_closed: keep
+
+  mentions:
+    layer: knowledge
+    slice: 1
+    scenarios: [R7, R14]
+    description: Явне посилання — запис чи задача називає сутність у полі refs. Ставить сервер з refs команди, без парсингу тексту; руками теж можна.
+    inverse: mentioned_by
+    ends: [{ from: "*", to: "*" }]
+    scope: owner
+    on_end_closed: keep
+
+  contradicts:
+    layer: knowledge
+    slice: 1
+    scenarios: [R9, R10]
+    description: Суперечність двох тверджень. Симетричний.
+    inverse: contradicts
+    ends: [{ from: "*", to: "*" }]
+    symmetric: true
+    scope: owner
+    on_end_closed: keep
+
+  confirms:
+    layer: knowledge
+    slice: 1
+    scenarios: [R9, R10]
+    description: Підтвердження (лічильник confirmations у твердження «куди»).
+    inverse: confirmed_by
+    ends: [{ from: "*", to: "*" }]
+    scope: owner
+    on_end_closed: keep
+
+  about:
+    layer: knowledge
+    slice: 1
+    scenarios: [R9]
+    description: Твердження → предмет (референт, суб'єкт, проєкт).
+    inverse: subject_of
+    ends: [{ from: "*", to: "*" }]
+    scope: owner
+    on_end_closed: keep
+
+  derived_from:
+    layer: knowledge
+    slice: 1
+    scenarios: [R7, R13]
+    description: Похідне → джерело (підсумок → покриті записи, нотатка → запис).
+    inverse: source_of
+    ends: [{ from: "*", to: "*" }]
+    acyclic: true
+    scope: owner
+    on_end_closed: keep

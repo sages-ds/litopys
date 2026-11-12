@@ -1,0 +1,580 @@
+# Словники використання. Вбудований каталог ядра:
+# словник — набір типів записів, кожен тип належить родині (types.yaml Family). Загальний словник general діє завжди,
+# його типи — це родини, і вони зберігаються без префікса (П1): `decision`, а не `general.decision`. Тип іншого
+# словника зберігається повним ім'ям `<словник>.<тип>` (`dba.migration`).
+#
+# Мови: усе для моделі — англійською (description, purpose, назви полів; рішення власника 2026-11-03);
+# підпис для людини — title.en і title.uk (українська — варіант локалі). Російської немає.
+#
+# Правила (перевіряє domain/tools/validate.mjs):
+#   - ключ словника й типу — ^[a-z][a-z0-9-]{1,30}$; тип іншого словника не може мати ключ типу general;
+#   - родина типу не змінюється між версіями, тип не видаляється — лише retired: true (+ replaced_by);
+#   - зміна типів словника = version + 1 (звірка з core/vocab/gen/vocabularies.json);
+#   - includes — повні імена наявних, не retired типів інших словників (не general);
+#   - legacy — фіксована мапа спадщини: старий тип -> тип каталогу тієї самої родини, що й у мапі.
+#
+# Необов'язкові поля типу: template (рекомендовані розділи тіла), tags (рекомендовані concepts), data_class_hint
+# (лише підказка моделі), reserved (пише лише сервер — outcome).
+spec_version: 1
+
+# Типи старого сервісу, яких немає серед родин. Решта старих (decision, note, question, proposal,
+# document, outcome) — уже типи general. Нетехнічні проєкти міграція кладе в родину — це поза мапою.
+legacy:
+  discovery: finding
+  bugfix: dev.bugfix
+  feature: dev.feature
+  refactor: dev.refactor
+  config: infra.config
+
+vocabularies:
+
+  # ---------- завжди ----------
+  general:
+    version: 1
+    title: { uk: "Загальний", en: "General" }
+    purpose: "Type families: applies in every project."
+    types:
+      decision:
+        family: decision
+        title: { uk: "Рішення", en: "Decision" }
+        description: "What the user decided. Only from the user's own words; your recommendation is a proposal."
+      proposal:
+        family: proposal
+        title: { uk: "Пропозиція", en: "Proposal" }
+        description: "Your recommendation or an option not yet decided by the user."
+      finding:
+        family: finding
+        title: { uk: "Знахідка", en: "Finding" }
+        description: "Something learned or checked: a fact, a cause, a measurement, the result of an investigation."
+      question:
+        family: question
+        title: { uk: "Питання", en: "Question" }
+        description: "An open question that someone still has to answer."
+      event:
+        family: event
+        title: { uk: "Подія", en: "Event" }
+        description: "Something that happened or was done: a change, an incident, a payment, a release."
+      document:
+        family: document
+        title: { uk: "Документ", en: "Document" }
+        description: "A curated document meant to be read as a whole: a guide, a spec, a summary kept up to date."
+      note:
+        family: note
+        title: { uk: "Нотатка", en: "Note" }
+        description: "Anything else worth keeping that fits no other type."
+      outcome:
+        family: outcome
+        title: { uk: "Підсумок", en: "Outcome" }
+        description: "The outcome of a task, record or topic for a session. Written only by session.close."
+        reserved: true
+
+  # ---------- особисті й технічні ----------
+  dev:
+    version: 1
+    title: { uk: "Розробник", en: "Software development" }
+    purpose: "Code: fixes, new features, refactoring, releases."
+    types:
+      bugfix:
+        family: event
+        title: { uk: "Виправлення", en: "Bug fix" }
+        description: "A defect that was fixed: symptom, cause, fix, how it was verified."
+        template: [symptom, cause, fix, verification]
+      feature:
+        family: event
+        title: { uk: "Можливість", en: "Feature" }
+        description: "New behaviour that was built: what it does, where, how to use it."
+      refactor:
+        family: event
+        title: { uk: "Рефакторинг", en: "Refactoring" }
+        description: "A change of structure without a change of behaviour: what moved and why."
+      release:
+        family: event
+        title: { uk: "Реліз", en: "Release" }
+        description: "A version that was shipped: number, contents, where it was deployed."
+        template: [version, changes, deployed_to]
+
+  dba:
+    version: 1
+    title: { uk: "DBA", en: "Database administration" }
+    purpose: "Schemas, migrations, query plans, backups and database incidents."
+    types:
+      migration:
+        family: event
+        title: { uk: "Міграція", en: "Migration" }
+        description: "A schema or data migration that was run or planned: what, where, result, rollback."
+        template: [target, version, result, rollback]
+        tags: [migration]
+      schema-change:
+        family: event
+        title: { uk: "Зміна схеми", en: "Schema change" }
+        description: "A change of tables, columns, indexes or constraints and the reason for it."
+      backup-restore:
+        family: event
+        title: { uk: "Бекап і відновлення", en: "Backup and restore" }
+        description: "A backup or a restore that was run or tested: source, target, size, duration, result."
+      query-plan:
+        family: finding
+        title: { uk: "План запиту", en: "Query plan" }
+        description: "What a query plan showed: the slow step, its cause and the fix that helped."
+      incident:
+        family: event
+        title: { uk: "Інцидент БД", en: "Database incident" }
+        description: "A database outage or degradation: impact, timeline, cause, recovery."
+
+  infra:
+    version: 1
+    title: { uk: "Інфраструктура й мережа", en: "Infrastructure and network" }
+    purpose: "Hosts, network, services: changes, configuration, incidents, access."
+    types:
+      change:
+        family: event
+        title: { uk: "Зміна", en: "Change" }
+        description: "A change made to hosts, network or services: what, where, why, how to roll back."
+      config:
+        family: event
+        title: { uk: "Конфігурація", en: "Configuration" }
+        description: "A configuration that was set or changed: the setting, its value (never a secret) and the reason."
+      incident:
+        family: event
+        title: { uk: "Інцидент", en: "Incident" }
+        description: "An outage or degradation of infrastructure: impact, timeline, cause, recovery."
+      access:
+        family: event
+        title: { uk: "Доступ", en: "Access" }
+        description: "Access that was granted, changed or revoked: who, to what, why. Never the credential itself."
+
+  legal-case:
+    version: 1
+    title: { uk: "Юридична справа", en: "Legal case" }
+    purpose: "Lawsuits, evidence, correspondence, rulings and deadlines in a case."
+    types:
+      claim:
+        family: document
+        title: { uk: "Позов чи вимога", en: "Claim" }
+        description: "A claim, a lawsuit or a demand: who claims what from whom and on what grounds."
+      evidence:
+        family: document
+        title: { uk: "Доказ", en: "Evidence" }
+        description: "A piece of evidence: what it is, where the original is, what it proves."
+      correspondence:
+        family: document
+        title: { uk: "Листування", en: "Correspondence" }
+        description: "A letter or message sent or received in the case: date, parties, summary."
+      ruling:
+        family: document
+        title: { uk: "Рішення суду чи органу", en: "Ruling" }
+        description: "A ruling of a court or an authority: date, outcome, deadline to appeal."
+      deadline:
+        family: event
+        title: { uk: "Строк", en: "Deadline" }
+        description: "A procedural deadline: what must be done by when and the consequence of missing it."
+
+  household:
+    version: 2
+    title: { uk: "Нерухомість і побут", en: "Property and household" }
+    purpose: "Expenses, payments, contracts, contacts, meter readings and repairs; amounts are structured fields (ledger_read)."
+    types:
+      expense:
+        family: event
+        title: { uk: "Витрата", en: "Expense" }
+        description: "Money spent: what for, amount, date, who paid. Put the sum in fields so ledger_read can add it up."
+        fields:
+          amount: { type: number, title: "Amount" }
+          currency: { type: currency, title: "Currency (UAH, EUR…)" }
+          payee: { type: string, title: "Paid to" }
+          paid_at: { type: date, title: "Paid on" }
+      payment:
+        family: event
+        title: { uk: "Платіж", en: "Payment" }
+        description: "A payment made or received: payee or payer, amount, date, purpose. The sum goes in fields."
+        fields:
+          amount: { type: number, title: "Amount" }
+          currency: { type: currency, title: "Currency" }
+          payee: { type: string, title: "To / from whom" }
+          paid_at: { type: date, title: "Paid on" }
+      contract:
+        family: document
+        title: { uk: "Договір", en: "Contract" }
+        description: "A contract with a provider or a party: subject, term, price, where the signed copy is."
+        fields:
+          party: { type: string, title: "Party" }
+          price: { type: number, title: "Price" }
+          currency: { type: currency, title: "Currency" }
+          until: { type: date, title: "Valid until" }
+      contact:
+        family: document
+        title: { uk: "Контакт", en: "Contact" }
+        description: "A person or a company the project deals with (contractor, shop, official). Records about them link to it with about."
+        fields:
+          name: { type: string, title: "Name", required: true }
+          role: { type: string, title: "Role" }
+          phone: { type: phone, title: "Phone" }
+          email: { type: email, title: "Email" }
+      meter-reading:
+        family: event
+        title: { uk: "Показник лічильника", en: "Meter reading" }
+        description: "A meter reading: which meter, value, date."
+        template: [meter, value, date]
+        fields:
+          meter: { type: string, title: "Meter" }
+          value: { type: number, title: "Reading" }
+          date: { type: date, title: "Date" }
+      repair:
+        family: event
+        title: { uk: "Ремонт", en: "Repair" }
+        description: "A repair or maintenance done: what, by whom, cost, warranty."
+        fields:
+          cost: { type: number, title: "Cost" }
+          currency: { type: currency, title: "Currency" }
+          by: { type: string, title: "Done by" }
+          warranty_until: { type: date, title: "Warranty until" }
+
+  research:
+    version: 1
+    title: { uk: "Навчання й дослідження", en: "Learning and research" }
+    purpose: "Sources, hypotheses, experiments and results."
+    types:
+      source:
+        family: document
+        title: { uk: "Джерело", en: "Source" }
+        description: "A source studied: reference, key points, how reliable it is."
+      hypothesis:
+        family: finding
+        title: { uk: "Гіпотеза", en: "Hypothesis" }
+        description: "A hypothesis to test: the claim and how it could be refuted."
+      experiment:
+        family: finding
+        title: { uk: "Експеримент", en: "Experiment" }
+        description: "An experiment that was run: setup, method, data."
+      result:
+        family: finding
+        title: { uk: "Результат", en: "Result" }
+        description: "What an experiment or a study showed and how confident the result is."
+
+  pm:
+    version: 1
+    title: { uk: "Управління проєктом", en: "Project management" }
+    purpose: "Project requirements, risks and milestones."
+    types:
+      requirement:
+        family: question
+        title: { uk: "Вимога", en: "Requirement" }
+        description: "A requirement still to be agreed or met: what is needed and who asked for it."
+      risk:
+        family: finding
+        title: { uk: "Ризик", en: "Risk" }
+        description: "A risk: what could go wrong, likelihood, impact, mitigation."
+      milestone:
+        family: event
+        title: { uk: "Віха", en: "Milestone" }
+        description: "A milestone reached or set: what, when."
+
+  # ---------- відділи великої організації ----------
+  exec:
+    version: 1
+    title: { uk: "Керівництво й стратегія", en: "Executive and strategy" }
+    purpose: "Goals, metrics, board decisions, initiatives."
+    types:
+      objective:
+        family: decision
+        title: { uk: "Ціль", en: "Objective" }
+        description: "An objective set by management: the goal, its owner and the deadline."
+      kpi:
+        family: event
+        title: { uk: "Показник", en: "KPI" }
+        description: "A key performance indicator value for a period: metric, target, actual."
+      board-decision:
+        family: decision
+        title: { uk: "Рішення правління", en: "Board decision" }
+        description: "A decision of the board or management: what was decided, by whom, when."
+      initiative:
+        family: event
+        title: { uk: "Ініціатива", en: "Initiative" }
+        description: "A strategic initiative started or changed: scope, sponsor, status."
+
+  finance:
+    version: 1
+    title: { uk: "Фінанси й бухгалтерія", en: "Finance and accounting" }
+    purpose: "Budgets, invoices, payments, period close, audit."
+    types:
+      budget:
+        family: event
+        title: { uk: "Бюджет", en: "Budget" }
+        description: "A budget set or changed: period, line, amount, owner."
+      invoice:
+        family: event
+        title: { uk: "Рахунок", en: "Invoice" }
+        description: "An invoice issued or received: party, amount, due date, status."
+      payment:
+        family: event
+        title: { uk: "Платіж", en: "Payment" }
+        description: "A payment made or received: party, amount, date, purpose."
+      period-close:
+        family: event
+        title: { uk: "Закриття періоду", en: "Period close" }
+        description: "The close of an accounting period: period, result, open issues."
+      audit-finding:
+        family: finding
+        title: { uk: "Зауваження аудиту", en: "Audit finding" }
+        description: "A finding of an audit: what is wrong, severity, the required action."
+
+  procurement:
+    version: 1
+    title: { uk: "Закупівлі", en: "Procurement" }
+    purpose: "Requests, tenders, suppliers, contracts, deliveries."
+    types:
+      purchase-request:
+        family: event
+        title: { uk: "Заявка на закупівлю", en: "Purchase request" }
+        description: "A request to buy something: item, quantity, budget, requester."
+      tender:
+        family: event
+        title: { uk: "Тендер", en: "Tender" }
+        description: "A tender run: subject, bidders, result."
+      supplier:
+        family: document
+        title: { uk: "Постачальник", en: "Supplier" }
+        description: "A supplier profile: what they supply, terms, contacts, assessment."
+      contract:
+        family: document
+        title: { uk: "Договір", en: "Contract" }
+        description: "A procurement contract: supplier, subject, term, price."
+      delivery:
+        family: event
+        title: { uk: "Поставка", en: "Delivery" }
+        description: "A delivery received or missed: what, from whom, when, issues."
+
+  hr:
+    version: 1
+    title: { uk: "Кадри (HR)", en: "Human resources" }
+    purpose: "Vacancies, onboarding, reviews, HR policies."
+    types:
+      vacancy:
+        family: event
+        title: { uk: "Вакансія", en: "Vacancy" }
+        description: "A vacancy opened or filled: role, team, status."
+        data_class_hint: local
+      onboarding:
+        family: event
+        title: { uk: "Адаптація", en: "Onboarding" }
+        description: "Onboarding of a new person: steps done and still open. Holds personal data."
+        data_class_hint: local
+      review:
+        family: event
+        title: { uk: "Оцінювання", en: "Performance review" }
+        description: "A performance review held: period, outcome, agreed actions. Holds personal data."
+        data_class_hint: local
+      hr-policy:
+        family: document
+        title: { uk: "Кадрова політика", en: "HR policy" }
+        description: "An HR policy: rule, scope, effective date."
+
+  compliance:
+    version: 1
+    title: { uk: "Юридичний і комплаєнс", en: "Legal and compliance" }
+    purpose: "Contracts, obligations, regulations, compliance checks, deadlines."
+    types:
+      contract:
+        family: document
+        title: { uk: "Договір", en: "Contract" }
+        description: "A contract under legal review: parties, subject, term, key clauses."
+      obligation:
+        family: document
+        title: { uk: "Зобов'язання", en: "Obligation" }
+        description: "An obligation the organisation has: source, what must be done, by when."
+      regulation:
+        family: document
+        title: { uk: "Регуляція", en: "Regulation" }
+        description: "A law or a regulation that applies: reference, what it requires."
+      compliance-check:
+        family: event
+        title: { uk: "Перевірка відповідності", en: "Compliance check" }
+        description: "A compliance check done: scope, result, gaps found."
+      deadline:
+        family: event
+        title: { uk: "Строк", en: "Deadline" }
+        description: "A legal or regulatory deadline: what must be done by when."
+
+  sales:
+    version: 1
+    title: { uk: "Продажі", en: "Sales" }
+    purpose: "Leads, deals, customers, offers."
+    types:
+      lead:
+        family: event
+        title: { uk: "Лід", en: "Lead" }
+        description: "A new lead: who, interest, source, next step."
+      deal:
+        family: event
+        title: { uk: "Угода", en: "Deal" }
+        description: "A deal moved or closed: customer, value, stage."
+      account:
+        family: document
+        title: { uk: "Клієнт", en: "Account" }
+        description: "A customer account profile: who they are, what they buy, contacts."
+      offer:
+        family: document
+        title: { uk: "Комерційна пропозиція", en: "Offer" }
+        description: "A commercial offer sent: customer, contents, price, validity."
+
+  marketing:
+    version: 1
+    title: { uk: "Маркетинг", en: "Marketing" }
+    purpose: "Campaigns, audiences, content, metrics."
+    types:
+      campaign:
+        family: event
+        title: { uk: "Кампанія", en: "Campaign" }
+        description: "A campaign launched or finished: goal, channels, budget, result."
+      audience:
+        family: finding
+        title: { uk: "Аудиторія", en: "Audience" }
+        description: "What is known about an audience segment: who, needs, how to reach them."
+      content:
+        family: event
+        title: { uk: "Контент", en: "Content" }
+        description: "A piece of content published: what, where, when."
+      metric:
+        family: finding
+        title: { uk: "Метрика", en: "Metric" }
+        description: "A marketing metric observed: metric, period, value, interpretation."
+
+  support:
+    version: 1
+    title: { uk: "Підтримка клієнтів", en: "Customer support" }
+    purpose: "Tickets, requests, SLA breaches, known errors."
+    types:
+      ticket:
+        family: event
+        title: { uk: "Звернення", en: "Ticket" }
+        description: "A support ticket: customer, problem, resolution."
+      request:
+        family: event
+        title: { uk: "Запит на обслуговування", en: "Service request" }
+        description: "A service request: what was asked and how it was fulfilled."
+      sla-breach:
+        family: event
+        title: { uk: "Порушення SLA", en: "SLA breach" }
+        description: "A breach of a service level: which SLA, by how much, why."
+      known-error:
+        family: finding
+        title: { uk: "Відома помилка", en: "Known error" }
+        description: "A known error with its workaround, until a permanent fix exists."
+
+  itops:
+    version: 1
+    title: { uk: "ІТ-операції (ITIL)", en: "IT operations (ITIL)" }
+    purpose: "Changes, incidents, problems, releases; changes and incidents are shared with Infrastructure."
+    includes: [infra.change, infra.incident]
+    types:
+      problem:
+        family: finding
+        title: { uk: "Проблема", en: "Problem" }
+        description: "The underlying cause behind one or more incidents and the plan to remove it."
+      release:
+        family: event
+        title: { uk: "Реліз", en: "Release" }
+        description: "A release deployed to production: version, scope, window, result."
+
+  security:
+    version: 1
+    title: { uk: "Інформаційна безпека", en: "Information security" }
+    purpose: "Vulnerabilities, security incidents, access reviews, risks."
+    types:
+      vulnerability:
+        family: finding
+        title: { uk: "Вразливість", en: "Vulnerability" }
+        description: "A vulnerability: affected system, severity, status of the fix. Keep exploit details out."
+        data_class_hint: local
+      security-incident:
+        family: event
+        title: { uk: "Інцидент безпеки", en: "Security incident" }
+        description: "A security incident: what happened, impact, containment, follow-up."
+      access-review:
+        family: event
+        title: { uk: "Перегляд доступів", en: "Access review" }
+        description: "A periodic access review: scope, findings, revocations."
+      risk:
+        family: finding
+        title: { uk: "Ризик безпеки", en: "Security risk" }
+        description: "A security risk: threat, likelihood, impact, treatment."
+
+  quality:
+    version: 1
+    title: { uk: "Виробництво і якість", en: "Production and quality" }
+    purpose: "Defects, nonconformities, corrective actions, batches."
+    types:
+      defect:
+        family: finding
+        title: { uk: "Дефект", en: "Defect" }
+        description: "A product defect: what, where found, how many affected."
+      nonconformity:
+        family: finding
+        title: { uk: "Невідповідність", en: "Nonconformity" }
+        description: "A deviation from a standard or a specification and its cause."
+      corrective-action:
+        family: event
+        title: { uk: "Коригувальна дія", en: "Corrective action" }
+        description: "A corrective action taken: for what, what was done, verified or not."
+      batch:
+        family: event
+        title: { uk: "Партія", en: "Batch" }
+        description: "A production batch: number, quantity, quality result."
+
+  logistics:
+    version: 1
+    title: { uk: "Логістика і склад", en: "Logistics and warehouse" }
+    purpose: "Shipments, stock counts, routes."
+    types:
+      shipment:
+        family: event
+        title: { uk: "Відправлення", en: "Shipment" }
+        description: "A shipment sent or received: contents, carrier, dates, issues."
+      stock-count:
+        family: event
+        title: { uk: "Інвентаризація", en: "Stock count" }
+        description: "A stock count: location, items, discrepancies."
+      route:
+        family: event
+        title: { uk: "Маршрут", en: "Route" }
+        description: "A delivery route planned or changed: stops, schedule, reason."
+
+  facilities:
+    version: 1
+    title: { uk: "Адміністративно-господарчий", en: "Facilities" }
+    purpose: "Premises, maintenance, property."
+    types:
+      facility:
+        family: document
+        title: { uk: "Приміщення", en: "Facility" }
+        description: "A facility or premises: location, purpose, responsible person."
+      maintenance:
+        family: event
+        title: { uk: "Обслуговування", en: "Maintenance" }
+        description: "Maintenance done: what, by whom, cost, next due date."
+      asset:
+        family: document
+        title: { uk: "Майно", en: "Asset" }
+        description: "An asset: what it is, where, inventory number, condition."
+
+  rnd:
+    version: 1
+    title: { uk: "Продукт і R&D", en: "Product and R&D" }
+    purpose: "Hypotheses, experiments, requirements, roadmap."
+    types:
+      hypothesis:
+        family: finding
+        title: { uk: "Гіпотеза", en: "Hypothesis" }
+        description: "A product hypothesis: who has what problem and what would prove it."
+      experiment:
+        family: finding
+        title: { uk: "Експеримент", en: "Experiment" }
+        description: "A product experiment: setup, metric, result."
+      requirement:
+        family: question
+        title: { uk: "Вимога", en: "Requirement" }
+        description: "A product requirement still to be agreed or built: need, source, priority."
+      roadmap-item:
+        family: question
+        title: { uk: "Пункт дорожньої карти", en: "Roadmap item" }
+        description: "A roadmap item under discussion: what, why, target period."

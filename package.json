@@ -1,0 +1,15 @@
+{
+  "name": "litopys-domain-spec",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Litopys domain specification (events, verbs, read models) and its validator",
+  "scripts": {
+    "validate": "node domain/tools/validate.mjs"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "yaml": "^2.6.0"
+  }
+}

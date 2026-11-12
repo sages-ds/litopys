@@ -1,0 +1,439 @@
+# Read-моделі. Жодна не є джерелом істини: будь-яку можна викинути й перебудувати з журналу (E7).
+# Кожна: slice, scenarios, fed_by (типи подій, що її змінюють), shape/rows (JSON Schema того, що повертає API).
+# Прямий UPDATE у проєкції — дефект (інваріант 2).
+spec_version: 1
+read_models:
+
+  statements_current:
+    slice: 1
+    scenarios: [R1, R2, R3, R6, R7, R8]
+    description: Живий вміст твердження + обчислені статус, ревізія, свіжість, покажчики заміни. Історія ревізій — з журналу.
+    fed_by: [statement.asserted, statement.amended, statement.retracted, statement.reinstated, statement.retention_set, statement.superseded, statement.folded, statement.unfolded, journal.purged, link.asserted, link.retired]
+    index_row:
+      type: object
+      required: [statement_id, project, type, title, status, effective_at, recorded_at, provenance]
+      properties:
+        statement_id: { $ref: "types.yaml#/$defs/Id" }
+        project: { $ref: "types.yaml#/$defs/ProjectName" }
+        type: { $ref: "types.yaml#/$defs/StatementType" }
+        title: { $ref: "types.yaml#/$defs/ShortText" }
+        status: { $ref: "types.yaml#/$defs/StatementStatus" }
+        effective_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        recorded_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        revision: { type: integer, minimum: 1 }
+        score: { type: number, description: "Лише в search — злитий гібридний бал." }
+        snippet: { type: string, description: "Лише за include_snippet — фрагмент тіла з підсвіткою «»." }
+        superseded_by: { $ref: "types.yaml#/$defs/Id" }
+        supersedes: { $ref: "types.yaml#/$defs/Id" }
+        resolved_by: { type: array, items: { type: string }, description: "Refs (R-N) of the records whose live resolves link answers this one: an answered question, a removed risk. Status stays current; absent when unresolved (roast r2, R2-2)." }
+        folded_under: { $ref: "types.yaml#/$defs/Id" }
+        confirmations: { type: integer, minimum: 0, description: "К-сть ребер confirms від інших акторів (R10)." }
+        files: { type: array, items: { type: string } }
+        concepts: { type: array, items: { $ref: "types.yaml#/$defs/Concept" } }
+        external_ref: { type: string }
+        legacy_type: { type: string, description: "Лише в імпортованих записах, тип яких змінила мапа міграції (0040): старий тип (bugfix, config, discovery…)." }
+        authority: { $ref: "types.yaml#/$defs/Authority" }
+        provenance: { $ref: "types.yaml#/$defs/Provenance" }
+        match:
+          type: object
+          description: "Лише в пошуку v2: які слова й ідентифікатори запиту рядок має (matched) і яких бракує (missing); full — увесь запит, partial — частина."
+          required: [coverage]
+          properties:
+            coverage: { type: string, enum: [full, partial, semantic], description: "semantic — знайдено лише за змістом." }
+            matched: { type: array, items: { type: string } }
+            missing: { type: array, items: { type: string } }
+            canonical:
+              type: object
+              description: "Ідентифікатори в matched/missing — як набрано в запиті; тут — їхня канонічна форма, коли вона інша («#44» → «t-44»)."
+              additionalProperties: { type: string }
+          additionalProperties: false
+      additionalProperties: false
+    full_row:
+      type: object
+      required: [statement_id, project, type, title, status, revision, effective_at, recorded_at, provenance]
+      properties:
+        statement_id: { $ref: "types.yaml#/$defs/Id" }
+        project: { $ref: "types.yaml#/$defs/ProjectName" }
+        type: { $ref: "types.yaml#/$defs/StatementType" }
+        title: { $ref: "types.yaml#/$defs/ShortText" }
+        body: { $ref: "types.yaml#/$defs/Body" }
+        status: { $ref: "types.yaml#/$defs/StatementStatus" }
+        revision: { type: integer, minimum: 1 }
+        effective_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        recorded_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        concepts: { type: array, items: { $ref: "types.yaml#/$defs/Concept" } }
+        files: { type: array, items: { type: string } }
+        external_ref: { type: string }
+        legacy_type: { type: string, description: "Лише в імпортованих записах, тип яких змінила мапа міграції (0040): старий тип." }
+        context_id: { $ref: "types.yaml#/$defs/Id" }
+        superseded_by: { $ref: "types.yaml#/$defs/Id" }
+        supersedes: { $ref: "types.yaml#/$defs/Id" }
+        folded_under: { $ref: "types.yaml#/$defs/Id" }
+        retention:
+          type: object
+          description: "Термін зберігання цього запису (0043): з retain_until діє on_expiry; у стертого — немає."
+          required: [retain_until, on_expiry]
+          properties:
+            retain_until: { type: string, format: date }
+            on_expiry: { type: string, enum: [retract, purge] }
+        tombstone:
+          type: object
+          description: "Лише для стертого: state=purged, at, by (actor_id), reason — без назви й вмісту."
+          required: [state, at, by, reason]
+          properties:
+            state: { type: string, enum: [purged] }
+            at: { $ref: "types.yaml#/$defs/Timestamp" }
+            by: { type: object, properties: { actor_id: { $ref: "types.yaml#/$defs/Id" } } }
+            reason: { type: string }
+        links:
+          type: array
+          items:
+            type: object
+            required: [relation, to]
+            properties:
+              relation: { type: string }
+              to: { $ref: "types.yaml#/$defs/EntityRef", description: "+ ref і state — retracted / purged, якщо інший кінець уже не живий." }
+        history:
+          type: array
+          description: Лише за history=true — попередні ревізії з походженням кожної.
+          items:
+            type: object
+            required: [revision, title, provenance]
+            properties:
+              revision: { type: integer }
+              title: { type: string }
+              body: { type: string }
+              legacy_type: { type: string, description: "Старий тип імпортованої версії (0040)." }
+              reason: { type: string }
+              provenance: { $ref: "types.yaml#/$defs/Provenance" }
+        provenance: { $ref: "types.yaml#/$defs/Provenance" }
+      additionalProperties: false
+
+  outcomes:
+    slice: 1
+    scenarios: [R1, R8, R14]
+    description: "Підсумки предметів: твердження type=outcome зі структурою statement.outcome. Останній за предметом — для task_resume / topic_resume, відкриті (state ≠ done) — для project_resume."
+    fed_by: [statement.asserted, statement.retracted, statement.reinstated, journal.purged]
+    row:
+      type: object
+      required: [statement_id, project, result, state, effective_at]
+      properties:
+        statement_id: { $ref: "types.yaml#/$defs/Id" }
+        project: { $ref: "types.yaml#/$defs/ProjectName" }
+        ref: { type: string }
+        subject_type: { type: string, enum: [statement, task] }
+        subject_id: { $ref: "types.yaml#/$defs/Id" }
+        topic: { type: string }
+        result: { $ref: "types.yaml#/$defs/ShortText" }
+        state: { $ref: "types.yaml#/$defs/OutcomeState" }
+        next: { type: string }
+        evidence: { type: array, items: { type: string } }
+        effective_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        session_id: { $ref: "types.yaml#/$defs/Id" }
+      additionalProperties: false
+
+  context_bundle:
+    slice: 1
+    scenarios: [R1, R12, R13]
+    description: Стартовий пакет під бюджет токенів. Порядок урізання при нестачі — index → old tasks → recent contexts; current і last_summary — ніколи.
+    fed_by: [project.declared, project.amended, project.transitioned, task.declared, task.amended, task.closed, task.reopened, context.checkpointed, context.opened, context.closed, statement.asserted, statement.superseded, statement.folded, consumer.cursor_set, fact.recorded, fact.retired]
+    shape:
+      type: object
+      required: [project, tasks, recent_statements, consumers, budget]
+      properties:
+        project: { $ref: "#/read_models/projects/row" }
+        current: { type: string, description: "«Де ми зараз» з останнього чекпоінта." }
+        last_summary:
+          type: object
+          description: Остання ЗМІСТОВНА сесія (має ≥1 твердження або чекпоінт); порожні хвости пропускаються.
+          properties:
+            context_id: { $ref: "types.yaml#/$defs/Id" }
+            closed_at: { $ref: "types.yaml#/$defs/Timestamp" }
+            summary: { type: string }
+            client: { $ref: "types.yaml#/$defs/ClientInfo" }
+        tasks: { type: array, items: { $ref: "#/read_models/tasks/row" } }
+        due:
+          type: object
+          description: >-
+            Відкриті задачі з due у минулому (overdue) і на 7 днів уперед (soon), найближчі першими, до 10 у кожному; days —
+            скільки днів до строку (від'ємне — прострочено). Немає таких — поля немає.
+          properties:
+            overdue: { type: array, items: { type: object } }
+            soon: { type: array, items: { type: object } }
+        decisions:
+          type: array
+          items: { $ref: "#/read_models/statements_current/index_row" }
+          description: >-
+            Чинні рішення проєкту (родина decision, без superseded/retracted), новіші за часом запису першими. Урізаються
+            останніми серед записів: наступна розмова має бачити, що вирішено (прожарка r1).
+        recent_statements: { type: array, items: { $ref: "#/read_models/statements_current/index_row" }, description: "Без згорнутих, без superseded/retracted, без outcome (вони — в open_outcomes) і без рішень із decisions; новіші за часом запису першими — дата події в майбутньому не витісняє решту." }
+        recent_contexts:
+          type: array
+          items:
+            type: object
+            properties:
+              context_id: { $ref: "types.yaml#/$defs/Id" }
+              closed_at: { $ref: "types.yaml#/$defs/Timestamp" }
+              client: { $ref: "types.yaml#/$defs/ClientInfo" }
+              has_content: { type: boolean }
+        facts: { type: array, items: { $ref: "#/read_models/facts/row" }, description: "Без binding і без фактів шару (вони — у layers)." }
+        layers:
+          type: object
+          description: >-
+            Розв'язаний стек шарів global → projects → <проєкт>: вужчий шар перемагає,
+            кожне правило з джерелом; лише правила власника. Відсутній, коли шарів немає.
+          required: [spaces, stack]
+          properties:
+            global: { $ref: "types.yaml#/$defs/ProjectName" }
+            spaces: { type: array, items: { $ref: "types.yaml#/$defs/ProjectName" } }
+            stack:
+              type: array
+              items:
+                type: object
+                required: [kind, key, layer, source]
+                properties:
+                  kind: { type: string, enum: [instruction, style, agent, skill] }
+                  key: { type: string }
+                  value: { type: string }
+                  layer: { type: string, enum: [global, projects, project] }
+                  source: { $ref: "types.yaml#/$defs/ProjectName" }
+                additionalProperties: false
+            overridden: { type: integer, minimum: 0 }
+          additionalProperties: false
+        consumers: { type: array, items: { $ref: "#/read_models/consumers/row" }, description: "Лише з відставанням > 0, курсор яких рухався за останні 7 днів; застиглі — у consumer_list." }
+        budget:
+          type: object
+          required: [tokens_limit, tokens_used, truncated]
+          properties:
+            tokens_limit: { type: integer }
+            tokens_used: { type: integer }
+            truncated: { type: array, items: { type: string }, description: "Які секції урізано і на скільки." }
+        hidden: { type: array, items: { $ref: "types.yaml#/$defs/Hidden" } }
+      additionalProperties: false
+
+  projects:
+    slice: 1
+    scenarios: [R1, R8, R14]
+    fed_by: [project.declared, project.amended, project.transitioned, context.checkpointed, statement.asserted]
+    row:
+      type: object
+      required: [project_id, name, status, provenance]
+      properties:
+        project_id: { $ref: "types.yaml#/$defs/Id" }
+        name: { $ref: "types.yaml#/$defs/ProjectName" }
+        title: { $ref: "types.yaml#/$defs/ProjectTitle" }
+        summary: { type: string }
+        scope: { type: string, description: "Межі проєкту одним рядком (0041)." }
+        repo_url: { type: string }
+        status: { $ref: "types.yaml#/$defs/ProjectStatus" }
+        labels: { type: array, items: { $ref: "types.yaml#/$defs/Label" }, description: "space / global — шари; мітки політики (0010)." }
+        updated_at: { $ref: "types.yaml#/$defs/Timestamp", description: "Час останньої події проєкту або його тверджень." }
+        statement_count: { type: integer }
+        provenance: { $ref: "types.yaml#/$defs/Provenance" }
+      additionalProperties: false
+    catalog_row:
+      type: object
+      description: Стислий рядок каталогу project.resume — summary обрізано до 160 символів.
+      required: [name, title, status]
+      properties:
+        name: { $ref: "types.yaml#/$defs/ProjectName" }
+        title: { $ref: "types.yaml#/$defs/ProjectTitle" }
+        status: { $ref: "types.yaml#/$defs/ProjectStatus" }
+        summary: { type: string, maxLength: 161 }
+        summary_truncated: { type: boolean }
+        scope: { type: string, maxLength: 200, description: "Межі проєкту (0041): за ними модель вибирає проєкт для запису." }
+        updated_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        open_tasks: { type: integer, minimum: 0 }
+      additionalProperties: false
+
+  tasks:
+    slice: 1
+    scenarios: [R1, R8, R14]
+    fed_by: [task.declared, task.amended, task.closed, task.reopened, task.retracted]
+    description: Модель todo v2. Ретраговані задачі в read-моделі відсутні.
+    row:
+      type: object
+      required: [task_id, project, num, title, kind, status, open, revision, provenance]
+      properties:
+        task_id: { $ref: "types.yaml#/$defs/Id" }
+        project: { $ref: "types.yaml#/$defs/ProjectName" }
+        num: { $ref: "types.yaml#/$defs/TaskNum" }
+        title: { $ref: "types.yaml#/$defs/ShortText" }
+        body: { type: string }
+        kind: { $ref: "types.yaml#/$defs/TaskKind" }
+        status: { $ref: "types.yaml#/$defs/TaskStatus" }
+        open: { type: boolean, description: "status не done / dropped." }
+        priority: { $ref: "types.yaml#/$defs/TaskPriority" }
+        rank: { type: integer }
+        role: { $ref: "types.yaml#/$defs/TaskRole" }
+        owner: { type: string }
+        owner_project: { $ref: "types.yaml#/$defs/ProjectName", description: "Проєкт-виконавець, коли не власний." }
+        assignee: { $ref: "types.yaml#/$defs/TaskAssignee" }
+        waiting_on: { type: integer, minimum: 0, description: "Скільки незадоволених depends_on / handoff виходить із задачі (на що вона чекає)." }
+        blocking: { type: integer, minimum: 0, description: "Скільки відкритих задач чекає на цю (вхідні depends_on / handoff)." }
+        waiting_on_refs: { type: array, items: { type: string }, description: "Refs (<project>/T-N) of the open tasks this one waits on; absent when none (roast r2, R2-3)." }
+        blocking_refs: { type: array, items: { type: string }, description: "Refs (<project>/T-N) of the open tasks waiting on this one; absent when none (roast r2, R2-3)." }
+        due: { type: string, format: date }
+        parent: { $ref: "types.yaml#/$defs/TaskNum" }
+        acceptance: { type: string }
+        severity: { $ref: "types.yaml#/$defs/Severity" }
+        resolution: { type: string }
+        labels: { type: array, items: { type: string } }
+        refs: { type: array, items: { type: string } }
+        closed_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        revision: { type: integer, minimum: 1 }
+        provenance: { $ref: "types.yaml#/$defs/Provenance" }
+      additionalProperties: false
+
+  facts:
+    slice: 1
+    scenarios: [R1, R14]
+    fed_by: [fact.recorded, fact.retired]
+    row:
+      type: object
+      required: [project, kind, key, provenance]
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectName" }
+        kind: { $ref: "types.yaml#/$defs/FactKind" }
+        key: { type: string }
+        value: { type: string }
+        secret_ref: { type: string }
+        source: { type: string, description: "R-N запису, з якого взято факт (0047)." }
+        stale: { type: boolean, description: "Джерело замінили чи відкликали — факт треба оновити або зняти." }
+        replaced_by: { type: string, description: "R-N запису, що замінив джерело." }
+        provenance: { $ref: "types.yaml#/$defs/Provenance" }
+      additionalProperties: false
+
+  consumers:
+    slice: 1
+    scenarios: [R1, R5, R14]
+    fed_by: [consumer.cursor_set]
+    row:
+      type: object
+      required: [consumer, seq, pending]
+      properties:
+        consumer: { type: string }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+        pending: { type: integer, minimum: 0, description: "last_seq − seq (з урахуванням фільтра типів споживача, якщо задекларовано)." }
+        updated_at: { $ref: "types.yaml#/$defs/Timestamp" }
+      additionalProperties: false
+
+  contexts:
+    slice: 1
+    scenarios: [R1, R14]
+    fed_by: [context.opened, context.closed, context.checkpointed, run.started, run.finished, statement.asserted]
+    description: Відкриті/закриті контексти з ознакою змістовності та клієнтом прогону.
+
+  lexical_index:
+    slice: 1
+    scenarios: [R2]
+    fed_by: [statement.asserted, statement.amended, statement.retracted, statement.reinstated, journal.purged]
+    description: "FTS + trgm + словник користувача (search_vocab чинного сервера). Незалежний від embedding-моделі, локальний."
+
+  vector_index:
+    slice: 1
+    scenarios: [R2]
+    fed_by: [statement.asserted, statement.amended, journal.purged]
+    description: Вектори з метаданими (provider, model, dimension, version). Одна сутність може мати кілька векторів; re-embedding не деструктивний. Заповнює асинхронний споживач.
+
+  audit:
+    slice: 1
+    scenarios: [R16]
+    fed_by: []
+    description: Хто викликав API (актор виклику, дієслово, аргументи з масками, результат). Пишеться на краю, НЕ подія журналу. TTL з конфігурації.
+
+  duplicates:
+    slice: 2
+    status: planned
+    scenarios: [R10]
+    fed_by: [link.asserted, attestation.given]
+  graph:
+    slice: 2
+    status: planned
+    scenarios: [R9, R11]
+    fed_by: [referent.registered, referent.merged, referent.retired, subject.registered, edge.asserted, edge.retired, link.asserted]
+  trace:
+    slice: 2
+    status: planned
+    scenarios: [R11]
+    fed_by: [run.started, run.finished, actor.registered]
+    description: Дерево прогонів і причинності — обчислюється з конверта (causation_id, correlation_id, parent_run_id).
+
+  workflows:
+    slice: 1
+    scenarios: [R17]
+    fed_by: [workflow.declared, workflow.amended, workflow.superseded, workflow.retired]
+    description: Процеси з версіями (версія незмінна; поточна — остання).
+    row:
+      type: object
+      required: [workflow_id, project, key, title, version, steps, retired, revision, provenance]
+      properties:
+        workflow_id: { $ref: "types.yaml#/$defs/Id" }
+        project: { $ref: "types.yaml#/$defs/ProjectName" }
+        key: { $ref: "types.yaml#/$defs/WorkflowKey" }
+        title: { $ref: "types.yaml#/$defs/ShortText" }
+        purpose: { type: string }
+        version: { type: integer, minimum: 1 }
+        steps: { type: integer, minimum: 1, description: "Кроків у поточній версії." }
+        retired: { type: boolean }
+        revision: { type: integer, minimum: 1 }
+        provenance: { $ref: "types.yaml#/$defs/Provenance" }
+      additionalProperties: false
+  executions:
+    slice: 1
+    scenarios: [R17, R18]
+    fed_by: [execution.started, execution.closed, step.started, step.checkpointed, step.finished, approval.granted, approval.revoked]
+    description: Виконання з кроками, спробами (оренда, виконавець) і затвердженнями; стан кроків обчислюється (core/flow).
+    row:
+      type: object
+      required: [execution_id, project, workflow, version, state, steps_total, steps_done, waiting_person, started_at, provenance]
+      properties:
+        execution_id: { $ref: "types.yaml#/$defs/Id" }
+        project: { $ref: "types.yaml#/$defs/ProjectName" }
+        workflow: { $ref: "types.yaml#/$defs/WorkflowKey" }
+        version: { type: integer }
+        state: { $ref: "types.yaml#/$defs/ExecutionState" }
+        steps_total: { type: integer }
+        steps_done: { type: integer, description: "Завершені й пропущені." }
+        waiting_person: { type: integer, description: "Кроки, що чекають GO чи дії людини." }
+        task_num: { $ref: "types.yaml#/$defs/TaskNum" }
+        summary: { type: string }
+        started_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        closed_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        provenance: { $ref: "types.yaml#/$defs/Provenance" }
+      additionalProperties: false
+    step:
+      type: object
+      required: [key, title, kind, state, attempts]
+      properties:
+        key: { $ref: "types.yaml#/$defs/StepKey" }
+        title: { type: string }
+        kind: { $ref: "types.yaml#/$defs/StepKind" }
+        state: { type: string, description: "StepState A2A + pending, skipped." }
+        waiting: { type: string, enum: [person, approval] }
+        lease_expired: { type: boolean }
+        attempts:
+          type: array
+          items:
+            type: object
+            properties:
+              attempt_id: { $ref: "types.yaml#/$defs/Id" }
+              attempt: { type: integer }
+              state: { type: string }
+              actor_id: { $ref: "types.yaml#/$defs/Id" }
+              lease_until: { $ref: "types.yaml#/$defs/Timestamp" }
+              output: { type: object }
+              output_withheld: { type: boolean, description: "Вихід кроку вищого класу даних, ніж грант читача." }
+              error: { type: string }
+        approvals:
+          type: array
+          items:
+            type: object
+            properties:
+              approval_id: { $ref: "types.yaml#/$defs/Id" }
+              actor_id: { $ref: "types.yaml#/$defs/Id" }
+              items: { type: array, items: { type: string } }
+              note: { type: string }
+              used: { type: boolean }
+              revoked: { type: boolean }
+      additionalProperties: false

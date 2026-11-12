@@ -1,0 +1,2805 @@
+# Дієслова API. Кожне: kind (command|query), slice, scenarios, auth, input, output, emits, idempotency, budget_ms (p95).
+# Проєкції (MCP/HTTP/SDK/CLI) обчислюються з назви — див. README. Тут їх НЕ пишемо.
+# Усі запити повертають provenance для кожного елемента і hidden[] для прихованого політикою (інваріант 5).
+spec_version: 1
+defaults:
+  auth: owner            # owner — власник tenant/даних; admin — оператор; consumer — сервісний актор зі scope на journal.changes
+  budget_ms: 300
+verbs:
+
+  # ---------- session (the surface says session, the journal keeps context.* events) ----------
+  project.resume:
+    kind: command
+    slice: 1
+    scenarios: [R1, R13, R14]
+    description: "Точка входу. Без project — стислий каталог; з project — сесія цього клієнта (підхопити або відкрити) і пакет стану з next_steps. Подій нуль, якщо сесія вже є або профіль readonly."
+    input:
+      type: object
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        auto_create: { type: boolean, default: false, description: "Створити проєкт, якщо його немає; slug виводиться з назви." }
+        budget_tokens: { $ref: "types.yaml#/$defs/TokenBudget", default: 5000 }
+        open_session: { type: boolean, default: true, description: "false — лише подивитись: сесія не відкривається й не лишається відкритою." }
+        agent: { text: id, $ref: "types.yaml#/$defs/AgentRole" }
+        client: { $ref: "types.yaml#/$defs/ClientInfo" }
+      additionalProperties: false
+    output:
+      type: object
+      properties:
+        catalog: { type: array, items: { $ref: "read-models.yaml#/read_models/projects/catalog_row" } }
+        session: { $ref: "#/$defs/SessionRef" }
+        project_created: { type: boolean }
+        bundle: { $ref: "read-models.yaml#/read_models/context_bundle/shape" }
+        next_steps: { type: array, items: { type: string } }
+        open_outcomes: { type: array, items: { $ref: "read-models.yaml#/read_models/outcomes/row" }, description: "Останні підсумки предметів проєкту зі state ≠ done, ≤ 5." }
+        pending_deletions: { type: array, items: { type: object }, description: "Пропозиції видалення, що чекають рішення людини, ≤ 10 — спитати GO, не давати його." }
+        vocabulary: { $ref: "#/$defs/VocabularyBlock" }
+        rules: { $ref: "#/$defs/RulesBlock" }
+        pending_confirmations:
+          type: array
+          description: "Мітки зберігання, що чекають підтвердження людини у viewer: purge або applies_to record; модель передає людині confirm_url і не підтверджує сама."
+          items:
+            type: object
+            required: [key, value, confirm_url, hint]
+            properties:
+              key: { type: string }
+              value: { type: string }
+              confirm_url: { type: string }
+              hint: { type: string }
+            additionalProperties: false
+        links:
+          type: object
+          description: "Живі зв'язки з іншими проєктами (depends_on, predecessor_of, parallel_line_of) в обидва боки, ≤ 10; на них спирається правило «один власник + дзеркало». Немає зв'язків — немає поля."
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                required: [type]
+                properties:
+                  type: { type: string, enum: [depends_on, predecessor_of, parallel_line_of] }
+                  to: { type: string, description: "Вихідний: цей проєкт --type--> to." }
+                  from: { type: string, description: "Вхідний: from --type--> цей проєкт." }
+                  archived: { type: boolean }
+                additionalProperties: false
+            more: { type: integer, description: "Скільки зв'язків не показано." }
+          additionalProperties: false
+      additionalProperties: false
+    emits: [run.started, context.opened, project.declared]
+    idempotency: "Відкрита сесія цього клієнта в проєкті підхоплюється — нової події немає."
+    budget_ms: 400
+    errors: [project_not_found, project_ambiguous, invalid_input]
+    tool:
+      params:
+        agent: "Only for a sub-agent: its role, e.g. \"reviewer\". Never a model or vendor name; the main assistant omits it."
+        auto_create: "Create the project when it does not exist (slug derived from the title)."
+        budget_tokens: "Upper bound of the answer size in tokens (default 5000)."
+        open_session: "false to only look at the state: no session is opened, none is left to close."
+        project: "Project slug or human title. Omit to get the catalog."
+      title: Resume project
+      chat: true
+      idempotent: true
+      description: >-
+        Start here. Call this first in every conversation and whenever the user names or switches a project.
+        Without `project` it returns a compact catalog of the user's projects (slug, title, short summary, scope, open
+        tasks); the scope says what belongs to a project — pick the project for a record by it.
+        With `project` (slug or human title) it attaches your session in that project — reusing the open one of this
+        client or opening a new one — and returns the project state: where work stopped, the last session summary,
+        open tasks in "what next" order, recent decisions, blockers, open questions, facts and next_steps.
+        Later writes need no session id: they go to this session automatically. Rules in the answer; details:
+        system_guide.
+
+  session.resume:
+    kind: command
+    slice: 1
+    scenarios: [R1, R14]
+    description: Повернутися до перерваної сесії — вказаної або останньої своєї в проєкті.
+    input:
+      type: object
+      properties:
+        session_id: { $ref: "types.yaml#/$defs/Id" }
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        budget_tokens: { $ref: "types.yaml#/$defs/TokenBudget" }
+      additionalProperties: false
+      anyOf: [{ required: [session_id] }, { required: [project] }]
+    output:
+      type: object
+      required: [session]
+      properties:
+        session: { $ref: "#/$defs/SessionRef" }
+        resumed_from: { $ref: "#/$defs/SessionRef" }
+        summary: { type: string }
+        current: { type: string }
+        next_steps: { type: array, items: { type: string }, description: "Що далі поза предметами, з закриття сесії." }
+        outcomes: { type: array, items: { $ref: "read-models.yaml#/read_models/outcomes/row" }, description: "Підсумки предметів, записані закриттям сесії." }
+        statements: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" } }
+        tasks_touched: { type: array, items: { $ref: "read-models.yaml#/read_models/tasks/row" } }
+        project: { $ref: "read-models.yaml#/read_models/projects/catalog_row" }
+      additionalProperties: false
+    emits: [run.started, context.opened]
+    idempotency: "Відкрита сесія продовжується без події; закрита — підсумок повертається, а робота йде в новій сесії."
+    errors: [session_not_found, project_not_found]
+    tool:
+      params:
+        project: "Project slug or title: resume your latest session there."
+        session_id: "The session to continue."
+      title: Resume session
+      chat: true
+      idempotent: true
+      description: >-
+        Continue an interrupted conversation: the user asks "where were we" or gives a session id. Returns that session
+        (or your latest one in the project): its summary, the "current" note, the statements written and tasks changed
+        in it, and a short project state. An open session is continued; a closed one is summarized and work continues in
+        a new session of this client.
+
+  task.resume:
+    kind: command
+    slice: 1
+    scenarios: [R8, R14]
+    description: Контекст однієї задачі перед роботою над нею; сесія прив'язується до її проєкту.
+    input:
+      type: object
+      required: [project, num]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        num: { $ref: "types.yaml#/$defs/TaskNum" }
+        budget_tokens: { $ref: "types.yaml#/$defs/TokenBudget" }
+        open_session: { type: boolean, default: true, description: "false — лише подивитись: сесія не відкривається й не лишається відкритою." }
+      additionalProperties: false
+    output:
+      type: object
+      required: [task]
+      properties:
+        task: { $ref: "read-models.yaml#/read_models/tasks/row" }
+        parent: { $ref: "read-models.yaml#/read_models/tasks/row" }
+        children: { type: array, items: { $ref: "read-models.yaml#/read_models/tasks/row" } }
+        related: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" } }
+        latest_outcome: { $ref: "read-models.yaml#/read_models/outcomes/row", description: "Останній підсумок задачі з закриття сесії." }
+        session: { $ref: "#/$defs/SessionRef" }
+      additionalProperties: false
+    emits: [run.started, context.opened]
+    errors: [project_not_found, task_not_found]
+    tool:
+      params:
+        num: "Task number in the project."
+        project: "Project slug or title."
+      title: Resume task
+      chat: true
+      idempotent: true
+      description: >-
+        Before working on one specific task (by its number in the project). Returns the task in full (body, acceptance,
+        refs, resolution), its parent and children, and the statements that mention it — related decisions and findings.
+        Attaches your session to the task's project, so what you write next lands there.
+
+  topic.resume:
+    kind: command
+    slice: 1
+    scenarios: [R2, R7, R9]
+    description: Що вирішено, пробували, замінено чи відкрито про тему; режим preflight — перед ризикованою дією.
+    input:
+      type: object
+      required: [topic]
+      properties:
+        topic: { text: id, type: string, minLength: 2, maxLength: 500 }
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        mode: { type: string, enum: [recall, preflight], default: recall }
+        budget_tokens: { $ref: "types.yaml#/$defs/TokenBudget" }
+        open_session: { type: boolean, default: true, description: "false — лише подивитись: сесія не відкривається й не лишається відкритою." }
+      additionalProperties: false
+    output:
+      type: object
+      required: [decisions, proposals, findings, questions, replaced]
+      properties:
+        decisions: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" } }
+        proposals: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" } }
+        findings: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" } }
+        questions: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" } }
+        replaced: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" } }
+        outcomes: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" }, description: "Підсумки предметів на тему (type=outcome), новіші першими." }
+        resolved: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" }, description: "Питання й ризики, закриті відповіддю (зв'язок resolves)." }
+        latest_outcome: { $ref: "read-models.yaml#/read_models/outcomes/row", description: "Останній підсумок теми-мітки topic:<тема>." }
+        open_tasks: { type: array, items: { $ref: "read-models.yaml#/read_models/tasks/row" } }
+        facts: { type: array, items: { $ref: "read-models.yaml#/read_models/facts/row" } }
+        session: { $ref: "#/$defs/SessionRef" }
+        relaxed: { type: boolean }
+        coverage: { type: string, enum: [full, partial, semantic, none] }
+        unknown_words: { type: array, items: { type: string } }
+        hidden: { type: array, items: { $ref: "types.yaml#/$defs/Hidden" } }
+      additionalProperties: false
+    emits: [run.started, context.opened]
+    errors: [project_not_found, invalid_input]
+    tool:
+      params:
+        mode: "\"recall\" (default) or \"preflight\" before a risky action."
+        project: "Limit to one project (slug or title) and attach your session there."
+        topic: "The topic in a few words, any language."
+      title: Resume topic
+      chat: true
+      idempotent: true
+      description: >-
+        Before deciding or acting on a topic: what the user decided, what was proposed, found or tried, what was
+        replaced, and which questions stay open — grouped, newest first. mode "preflight" (before a risky or
+        irreversible action) adds open tasks and project facts on the topic. With `project` it searches that project
+        and attaches your session there; without it, all the user's projects.
+
+  session.open:
+    kind: command
+    slice: 1
+    scenarios: [R1, R14]
+    description: Явно відкрити (або підхопити свою) сесію без пакета — для плагінів і хуків, що самі керують сесією.
+    input:
+      type: object
+      required: [project, attach]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        attach:
+          oneOf: [{ $ref: "types.yaml#/$defs/Id" }, { const: none }]
+          description: "id СВОЄЇ раніше відкритої сесії (з маркера термінала) або none. Пропуск заборонено — без легасі-гілки."
+        auto_create: { type: boolean, default: false, description: "Створити проєкт, якщо його немає (для хуків, де назва з теки)." }
+        agent: { text: id, $ref: "types.yaml#/$defs/AgentRole" }
+        run_id: { $ref: "types.yaml#/$defs/Id" }
+        client: { $ref: "types.yaml#/$defs/ClientInfo" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [session]
+      properties:
+        session: { $ref: "#/$defs/SessionRef" }
+        attached: { type: boolean }
+        attach_miss: { type: string, enum: [closed, not_found, other_project] }
+        project_created: { type: boolean }
+        vocabulary: { $ref: "#/$defs/VocabularyBlock" }
+        rules: { $ref: "#/$defs/RulesBlock" }
+      additionalProperties: false
+    emits: [run.started, context.opened, project.declared]
+    idempotency: "attach=<id> — повторний виклик повертає ту саму сесію; attach=none — завжди нова."
+    budget_ms: 300
+    errors: [project_not_found, actor_not_registered]
+    tool:
+      params:
+        attach: "Id of a session you opened before (from your own marker), or \"none\" for a new one."
+      title: Open session
+      description: >-
+        Low-level: open a session explicitly, or re-attach one you opened before (attach = its id from your own marker;
+        "none" for a new one). For plugins and hooks that manage sessions themselves. In a conversation use
+        project_resume instead — it opens or reuses the session and also returns the project state.
+
+  session.checkpoint:
+    kind: command
+    slice: 1
+    scenarios: [R1, R14]
+    input:
+      type: object
+      required: [summary]
+      properties:
+        session_id: { $ref: "types.yaml#/$defs/Id", description: "Дефолт — відкрита сесія цього клієнта." }
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        summary: { text: free, type: string, minLength: 1, maxLength: 8192 }
+        current: { text: free, type: string, maxLength: 2000 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/WriteAck" }
+    emits: [context.checkpointed]
+    idempotency: "Той самий summary у тій самій сесії за 24 год — deduped: true."
+    tool:
+      params:
+        current: "One or two lines: where the work stands right now."
+        session_id: "Defaults to your open session."
+        summary: "What was done so far."
+      title: Checkpoint session
+      chat: true
+      idempotent: true
+      description: >-
+        Save progress without ending the session: a summary of what was done so far and `current` — one or two lines on
+        where work stands right now (the next session starts from it). Use after a meaningful step or before a long
+        pause. Without session_id it goes to your open session.
+
+  session.close:
+    kind: command
+    slice: 1
+    scenarios: [R1, R14]
+    description: "Закрити СВОЮ сесію. Повторне закриття — не помилка (already_closed: true), summary тоді зберігається чекпоінтом."
+    input:
+      type: object
+      required: [summary]
+      properties:
+        session_id: { $ref: "types.yaml#/$defs/Id", description: "Дефолт — відкрита сесія цього клієнта." }
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        summary: { text: free, type: string, minLength: 1, maxLength: 8192 }
+        finish_run: { type: boolean, default: true }
+        outcomes:
+          type: array
+          maxItems: 10
+          description: "Підсумок кожного предмета, який сесія зрушила: одне твердження type=outcome на предмет, зв'язок about до нього."
+          items:
+            type: object
+            required: [ref, result, state]
+            properties:
+              ref: { text: id, type: string, minLength: 1, maxLength: 300, description: "R-498, T-12, <проєкт>/T-12, topic:<назва> або id запису чи задачі." }
+              result: { text: line, type: string, minLength: 1, maxLength: 300 }
+              state: { $ref: "types.yaml#/$defs/OutcomeState" }
+              next: { text: line, type: string, maxLength: 300, description: "Обов'язковий, якщо state ≠ done." }
+              evidence: { type: array, items: { text: line, type: string, minLength: 1, maxLength: 300 }, maxItems: 5 }
+            additionalProperties: false
+        next_steps: { type: array, items: { text: line, type: string, minLength: 1, maxLength: 300 }, maxItems: 5 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [closed]
+      properties:
+        closed: { type: boolean }
+        already_closed: { type: boolean }
+        closed_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        checkpoint: { $ref: "#/$defs/Checkpoint" }
+        session: { $ref: "#/$defs/SessionRef" }
+        outcomes:
+          type: array
+          items:
+            type: object
+            required: [ref, statement_id]
+            properties:
+              ref: { type: string }
+              statement_id: { $ref: "types.yaml#/$defs/Id" }
+            additionalProperties: false
+        missing_outcomes: { type: array, items: { type: string }, description: "Задачі, які сесія змінила і не закрила, без підсумку — підказка, не відмова." }
+        hints: { type: array, items: { type: string } }
+        warnings: { type: array, items: { type: string }, description: "outcome_subject_gone: предмет підсумку вже не живий (карантин, відкликано, стерто) — підсумок збережено як topic:<ref>, сесія закрита." }
+      additionalProperties: false
+    emits: [context.closed, context.checkpointed, run.finished, statement.asserted, link.asserted]
+    idempotency: "Ідемпотентно за session_id: повторне закриття нових підсумків не пише."
+    errors: [invalid_ref, statement_not_found, task_not_found, session_not_found]
+    tool:
+      params:
+        next_steps: "What comes next beyond these subjects: the plan for the next session."
+        outcomes: >-
+          One per subject the session moved. ref — the subject: T-12 (a task of this project), <project>/T-12, R-498 (a
+          record) or topic:<name>; result — what came of it, one sentence; state — done, partial, blocked or failed;
+          next — the next step, required unless done; evidence — commits, PRs, reports.
+        session_id: "Defaults to your open session."
+        summary: "What was achieved, decided and left open."
+      title: Close session
+      chat: true
+      idempotent: true
+      description: >-
+        End the session when the work or the conversation is done: a summary of what was achieved, decided and left
+        open, plus `outcomes` — for each task, record or topic the session moved: what came of it, its state and the
+        next step — and `next_steps`. The next session of any client starts from them. state done does not close a
+        task: call task_close for that. The answer names tasks you changed but gave no outcome. Closing twice is harmless.
+
+  session.list:
+    kind: query
+    slice: 1
+    scenarios: [R1, R14]
+    description: Мої відкриті сесії (memory_open_sessions фасаду).
+    input:
+      type: object
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [session_id, project, opened_at, provenance]
+            properties:
+              session_id: { $ref: "types.yaml#/$defs/Id" }
+              project: { $ref: "types.yaml#/$defs/ProjectName" }
+              opened_at: { $ref: "types.yaml#/$defs/Timestamp" }
+              last_event_at: { $ref: "types.yaml#/$defs/Timestamp" }
+              client: { $ref: "types.yaml#/$defs/ClientInfo" }
+              mine: { type: boolean, description: "Сесія цього клієнта (гранту)." }
+              provenance: { $ref: "types.yaml#/$defs/Provenance" }
+      additionalProperties: false
+    tool:
+      title: List open sessions
+      description: >-
+        Your open sessions, optionally in one project, each marked `mine` when it belongs to this client. Use to find a
+        session id to resume or close; project_resume and session_resume usually make this unnecessary.
+
+  # ---------- statement ----------
+  statement.assert:
+    kind: command
+    slice: 1
+    scenarios: [R2, R3, R14]
+    description: "Записати твердження. Повертає event_id і seq — і більше нічого не обчислює (інваріант 4). Секрети в тілі маскуються до запису (masked: true)."
+    input:
+      type: object
+      required: [project, type, title]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        type: { text: id, $ref: "types.yaml#/$defs/WritableStatementType" }
+        title: { text: line, $ref: "types.yaml#/$defs/ShortText" }
+        body: { text: free, $ref: "types.yaml#/$defs/Body" }
+        concepts: { type: array, items: { text: id, $ref: "types.yaml#/$defs/Concept" }, maxItems: 20 }
+        files: { type: array, items: { text: id, type: string, maxLength: 512 }, maxItems: 50 }
+        external_ref: { text: id, type: string, maxLength: 512 }
+        session_id: { $ref: "types.yaml#/$defs/Id", description: "Дефолт — відкрита сесія цього клієнта в проєкті." }
+        effective_at: { $ref: "types.yaml#/$defs/Timestamp", description: "Ретроспективний факт — раніша дата дійсності. Дефолт — зараз." }
+        supersedes: { $ref: "types.yaml#/$defs/Id", description: "Скорочення для statement.supersede." }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Підняти клас проєкту для цього твердження (Д9); знизити не можна." }
+        refs: { $ref: "types.yaml#/$defs/Refs" }
+        fields: { $ref: "types.yaml#/$defs/StatementFields", description: "Структуровані поля типу: amount, currency, payee, paid_at, phone… (схема — у vocabulary_read). Суми — числом, не текстом." }
+        retain_until: { type: string, format: date, description: "Термін зберігання цього запису (0043): з цього дня (Europe/Kyiv) діє on_expiry. Не раніше сьогодні." }
+        on_expiry: { type: string, enum: [retract, purge], description: "Разом із retain_until: retract — worker відкличе запис; purge — worker відкриє пропозицію стерти (D-N), стирання — лише за GO людини." }
+      additionalProperties: false
+    output:
+      type: object
+      required: [statement_id, event_id, seq]
+      properties:
+        statement_id: { $ref: "types.yaml#/$defs/Id" }
+        num: { type: integer, minimum: 1, description: "Номер запису в межах власника." }
+        ref: { type: string, description: "R-<num> — канонічне посилання для refs і outcomes." }
+        type: { $ref: "types.yaml#/$defs/StatementType", description: "Тип, як збережено: коротке ім'я розв'язано в повне." }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+        deduped: { type: boolean, description: "Повтор: той самий external_ref, або без нього — той самий тип, title і перші 500 символів тіла в проєкті за 10 хв (повтор після втраченої відповіді) — повернуто наявний запис, нічого не записано." }
+        masked: { type: boolean }
+        split: { type: object, properties: { parts: { type: array, items: { $ref: "types.yaml#/$defs/Id" } } } }
+        session_id: { $ref: "types.yaml#/$defs/Id" }
+        session_inherited: { type: boolean }
+        session_miss: { type: string, enum: [closed, not_found, other_project] }
+        warnings: { type: array, items: { type: string } }
+      additionalProperties: false
+    emits: [statement.asserted, statement.superseded, link.asserted]
+    errors: [ref_not_found, type_unknown, type_ambiguous, type_retired, type_reserved, retain_until_past]
+    idempotency: "external_ref у межах проєкту — повторний виклик повертає той самий statement_id."
+    budget_ms: 100
+    tool:
+      executor:
+        params: [project, type, title, body, concepts, refs]
+        description: "Save one record of your step in the project: title = one line a search will find, body = the details. type: finding, event, note, question, proposal or a type the step names. Secrets are refused."
+      params:
+        body: "The details. Always pass it."
+        external_ref: "Idempotency key within the project: the same ref returns the same statement."
+        refs: "What this refers to: R-498 (a record), T-12 or <project>/T-12 (a task), W-3, X-17, or outside things like jira:ABC-1, pr:<url>. Internal refs must exist; they become links."
+        project: "Project slug or title."
+        session_id: "Defaults to your open session in the project."
+        title: "One line a search will find."
+        retain_until: "Only when the user said how long to keep it: the day (YYYY-MM-DD, Europe/Kyiv) from which on_expiry applies; pass on_expiry with it."
+        on_expiry: "retract = it is withdrawn that day; purge = that day a deletion proposal is opened for the user's GO (nothing is erased without it)."
+        type: "A type of the project's vocabularies (the vocabulary block of project_resume): decision = the user decided; proposal = your recommendation; finding, question, event, document, note — or a vocabulary type like migration / dba.migration. A refused type lists the allowed ones."
+      title: Save statement
+      chat: true
+      description: >-
+        Save one thing worth remembering in the project: a decision the user made (type "decision"), your own
+        recommendation (type "proposal" — never "decision"), a finding, an event (something done or that happened), a
+        document, a note or an open question — or a more precise type of the project's vocabularies. Title = one line a search will find; body = the details (always pass it). Secrets are refused — write
+        ${VAR} instead. Goes to your open session automatically; returns the statement id.
+
+  statement.amend:
+    kind: command
+    slice: 1
+    scenarios: [R3, R14]
+    input:
+      type: object
+      required: [statement_id]
+      properties:
+        statement_id: { $ref: "types.yaml#/$defs/Id" }
+        if_revision: { type: integer, minimum: 1, description: "Оптимістичне блокування: номер останньої відомої ревізії." }
+        title: { text: line, $ref: "types.yaml#/$defs/ShortText" }
+        body: { text: free, $ref: "types.yaml#/$defs/Body" }
+        type: { text: id, $ref: "types.yaml#/$defs/WritableStatementType" }
+        concepts: { type: array, items: { text: id, $ref: "types.yaml#/$defs/Concept" } }
+        files: { type: array, items: { text: id, type: string } }
+        reason: { text: free, type: string, maxLength: 500 }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Лише вищий за чинний клас твердження (Д9)." }
+        refs: { $ref: "types.yaml#/$defs/Refs", description: "Новий список замінює старий; зв'язки mentions — так само." }
+        fields: { $ref: "types.yaml#/$defs/StatementFields", description: "Новий набір структурованих полів повністю; {} — прибрати." }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [statement.amended, link.asserted, link.retired]
+    errors: [statement_not_found, revision_conflict, statement_retracted, data_class_lowered, ref_not_found, type_unknown, type_ambiguous, type_retired, type_reserved]
+    tool:
+      title: Amend statement
+      chat: true
+      description: >-
+        Correct or complete a statement you or the user saved earlier: pass only the fields that change. The previous
+        revision stays in history. For a statement that is no longer true use statement_supersede instead.
+
+  statement.retract:
+    kind: command
+    slice: 1
+    scenarios: [R3, R14]
+    input:
+      type: object
+      required: [statement_id]
+      properties:
+        statement_id: { $ref: "types.yaml#/$defs/Id" }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [statement.retracted]
+    idempotency: "Повторний retract — already: true, без нової події."
+    tool:
+      title: Retract statement
+      destructive: true
+      idempotent: true
+      description: >-
+        Withdraw a statement saved by mistake (wrong project, duplicate, wrong content). It disappears from search but
+        stays in history and can be reinstated. A statement that was true and is now outdated → statement_supersede.
+
+  statement.retain:
+    kind: command
+    slice: 1
+    scenarios: [R14]
+    description: "Термін зберігання одного запису (0043): поставити, замінити чи зняти (retain_until \"\"). Не нова версія вмісту. retract за терміном — лише той, хто може відкликати запис зараз (агент — свій); purge за терміном — пропозиція стерти з GO людини, тож будь-хто. Термін, який поставила людина, змінює чи знімає лише людина."
+    input:
+      type: object
+      required: [statement_id, retain_until]
+      properties:
+        statement_id: { $ref: "types.yaml#/$defs/Id" }
+        retain_until: { text: id, type: string, description: "YYYY-MM-DD (Europe/Kyiv), не раніше сьогодні; \"\" — зняти термін." }
+        on_expiry: { type: string, enum: [retract, purge], description: "Обов'язково з датою; без неї — ні." }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [statement.retention_set]
+    errors: [statement_not_found, statement_retracted, retain_until_past, retract_not_own, retention_set_by_human]
+    idempotency: "Той самий термін і дія, або зняття відсутнього — already: true, без нової події."
+    tool:
+      title: Set record retention
+      idempotent: true
+      params:
+        retain_until: "YYYY-MM-DD (Europe/Kyiv), today or later; \"\" lifts the retention."
+        on_expiry: "retract or purge; required with a date, omitted when lifting."
+      description: >-
+        Keep a record only until a date the user named: from that day it is retracted (on_expiry retract), or a
+        deletion proposal is opened for the user's GO (on_expiry purge — nothing is erased without it). Set it only
+        when the user asked how long to keep something. You may schedule retract only on your own records; a
+        retention the user set is changed only by the user. retain_until "" lifts it.
+
+  statement.reinstate:
+    kind: command
+    slice: 1
+    scenarios: [R14]
+    input:
+      type: object
+      required: [statement_id]
+      properties:
+        statement_id: { $ref: "types.yaml#/$defs/Id" }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [statement.reinstated]
+    tool:
+      title: Reinstate statement
+      idempotent: true
+      description: >-
+        Undo statement_retract: the statement becomes current again and is found by search.
+
+  statement.supersede:
+    kind: command
+    slice: 1
+    scenarios: [R6, R7]
+    description: Замінити старе твердження новим. Дві події однією транзакцією; старе лишається читабельним зі статусом superseded.
+    input:
+      type: object
+      required: [supersedes, statement]
+      properties:
+        supersedes: { $ref: "types.yaml#/$defs/Id" }
+        statement: { $ref: "#/verbs/statement.assert/input" }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/verbs/statement.assert/output" }
+    emits: [statement.asserted, statement.superseded]
+    tool:
+      title: Supersede statement
+      description: >-
+        Replace a statement that is no longer true with a new one (a decision changed, a fact moved on). The old one
+        stays readable as superseded and points to the new one, so history explains itself.
+
+  statement.explain:
+    kind: query
+    slice: 2
+    status: planned
+    scenarios: [R4]
+    description: Ланцюг обґрунтування asserted → evidence → attestations → conflicts → supersedes; для прихованого — hidden_by.
+  statement.attest:
+    kind: command
+    slice: 2
+    status: planned
+    scenarios: [R4, R10]
+    emits: [attestation.given]
+  statement.challenge:
+    kind: command
+    slice: 2
+    status: planned
+    scenarios: [R9]
+    emits: [conflict.observed]
+  statement.fold:
+    kind: command
+    slice: 3
+    status: planned
+    scenarios: [R13]
+    emits: [statement.folded]
+  statement.unfold:
+    kind: command
+    slice: 3
+    status: planned
+    scenarios: [R13]
+    emits: [statement.unfolded]
+
+  # ---------- recall ----------
+  recall.search:
+    kind: query
+    slice: 1
+    scenarios: [R2, R13, R14]
+    description: Кандидати — компактний індекс без тіл. Гібрид лексика+вектор, злитий. Статус кожного рядка обов'язковий.
+    input:
+      type: object
+      properties:
+        query: { type: string, maxLength: 2000 }
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        type: { $ref: "types.yaml#/$defs/StatementType" }
+        family: { $ref: "types.yaml#/$defs/Family", description: "Родина типу: усі типи цієї родини в усіх словниках." }
+        concepts: { type: array, items: { $ref: "types.yaml#/$defs/Concept" }, maxItems: 20 }
+        files: { type: array, items: { type: string }, maxItems: 20 }
+        external_ref: { type: string }
+        date_from: { $ref: "types.yaml#/$defs/Timestamp" }
+        date_to: { $ref: "types.yaml#/$defs/Timestamp" }
+        include_snippet: { type: boolean, default: false }
+        include_folded: { type: boolean, default: true, description: "Явний пошук бачить згорнуті (R13)." }
+        include_superseded: { type: boolean, default: true }
+        limit: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        id_before: { $ref: "types.yaml#/$defs/Id" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items, hidden]
+      properties:
+        items:
+          type: array
+          items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" }
+        relaxed: { type: boolean, description: "Жоден рядок не має всього запиту — лише часткові збіги (у v1: OR-фолбек)." }
+        coverage: { type: string, enum: [full, partial, semantic, none], description: "Пошук v2: full — є рядок з усім запитом; partial — лише часткові; semantic — лише збіги за змістом; none — нічого." }
+        meaning: { type: string, enum: [used, words_only, no_match, model_unavailable, error], description: "What the meaning search did: used - it added or re-ranked rows; words_only - nothing near by meaning, the rows are word matches (also a record written moments ago, before its vector); no_match - nothing by words or by meaning; model_unavailable - the model did not answer, words only; error. Absent when it is off." }
+        unknown_words: { type: array, items: { type: string }, description: "Пошук v2: слова запиту, яких немає в жодному записі (навіть через одрук) — відповіді може не бути." }
+        noise_hidden: { type: integer, minimum: 0, description: "Пошук v2: скільки збігів сховано як шум (include_noise показує)." }
+        entity: { type: object, description: "Запит-номер задачі, процесу чи виконання, а також стертого запису чи відкликаної задачі: ref, entity_type, entity_id, title, state; для стертого — без назви, з tombstone; записи, що на неї посилаються, — першими в items." }
+        hidden: { type: array, items: { $ref: "types.yaml#/$defs/Hidden" } }
+      additionalProperties: false
+    budget_ms: 500
+    tool:
+      executor:
+        params: [query, project, type, limit]
+        description: "Find records by words (any language) and filters; returns a compact index without bodies. Read a body with recall_read only if the step allows it."
+      params:
+        id_before: "Paging: the smallest id of the previous page."
+        family: "One of decision, proposal, finding, question, event, document, note, outcome: every type of that family in any vocabulary."
+        project: "Project slug or title."
+        query: "Words in any language; empty with filters lists by date."
+        type: "A type of the project's vocabularies, short (migration) or full (dba.migration); with project it is resolved like a write."
+      title: Search memory
+      chat: true
+      idempotent: true
+      description: >-
+        Find statements by words, filters or both: returns a compact index (id, date, type, status, title, authority) —
+        no bodies. Words in any language. Each row's `match` names the query words it holds and misses; `coverage`
+        says whether any row holds the whole query, and `unknown_words` lists words no record holds — the answer may
+        not be in memory. A query that is a number (R-498, T-12 or <project>/T-12, W-3, X-17) gives that
+        record first, or the task / workflow / execution in `entity` (an erased record or a retracted task comes there
+        too, with its state), then the records that mention it; tasks that
+        mention it come in `mentioned_by`. Then read only the ids you need with recall_read. For "what did we decide about X" prefer topic_resume.
+
+  recall.read:
+    kind: query
+    slice: 1
+    scenarios: [R3, R14]
+    description: Повний вміст за id (≤20). Ретраговані — зі статусом, не 404. history=true додає попередні ревізії.
+    input:
+      type: object
+      required: [ids]
+      properties:
+        ids: { type: array, items: { $ref: "types.yaml#/$defs/Id" }, minItems: 1, maxItems: 20 }
+        history: { type: boolean, default: false }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items, hidden]
+      properties:
+        items: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/full_row" } }
+        hidden: { type: array, items: { $ref: "types.yaml#/$defs/Hidden" } }
+      additionalProperties: false
+    budget_ms: 100
+    tool:
+      title: Read statements
+      chat: true
+      idempotent: true
+      description: >-
+        Full content of up to 20 statements by id, after recall_search or a resume. Retracted and superseded ones come
+        with their status, not as errors; history=true adds earlier revisions.
+
+  recall.as_of:
+    kind: query
+    slice: 1
+    scenarios: [R6]
+    description: Зріз чинних тверджень під одну або обидві осі часу. Без осей = recall.search без запиту.
+    input:
+      type: object
+      required: [project]
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        recorded_at: { $ref: "types.yaml#/$defs/Timestamp", description: "«У що вірили на цей момент» — ігнорує події з recorded_at пізніше." }
+        effective_at: { $ref: "types.yaml#/$defs/Timestamp", description: "«Що було правдою на цей момент, як відомо зараз»." }
+        type: { $ref: "types.yaml#/$defs/StatementType" }
+        family: { $ref: "types.yaml#/$defs/Family", description: "Родина типу: усі типи цієї родини в усіх словниках." }
+        limit: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      additionalProperties: false
+      anyOf: [{ required: [recorded_at] }, { required: [effective_at] }]
+    output:
+      type: object
+      required: [items, axes, hidden]
+      properties:
+        items: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" } }
+        axes:
+          type: object
+          properties:
+            recorded_at: { $ref: "types.yaml#/$defs/Timestamp" }
+            effective_at: { $ref: "types.yaml#/$defs/Timestamp" }
+          description: Які осі застосовано — щоб відповідь пояснювала сама себе.
+        hidden: { type: array, items: { $ref: "types.yaml#/$defs/Hidden" } }
+      additionalProperties: false
+    budget_ms: 500
+    tool:
+      params:
+        family: "One of decision, proposal, finding, question, event, document, note, outcome: every type of that family in any vocabulary."
+      title: Statements as of
+      idempotent: true
+      description: >-
+        What was current at a moment: recorded_at = what the project believed then; effective_at = what was true then
+        as known now. For audits and "why did we do X back then".
+
+  recall.timeline:
+    kind: query
+    slice: 1
+    scenarios: [R7, R14]
+    description: Упорядкована стрічка з явними ребрами supersedes/related/contradicts; згорнуті — групою під підсумком.
+    input:
+      type: object
+      required: [project]
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        date_from: { $ref: "types.yaml#/$defs/Timestamp" }
+        date_to: { $ref: "types.yaml#/$defs/Timestamp" }
+        type: { $ref: "types.yaml#/$defs/StatementType" }
+        family: { $ref: "types.yaml#/$defs/Family", description: "Родина типу: усі типи цієї родини в усіх словниках." }
+        limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items, hidden]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [row, links]
+            properties:
+              row: { $ref: "read-models.yaml#/read_models/statements_current/index_row" }
+              links:
+                type: array
+                items:
+                  type: object
+                  required: [relation, to]
+                  properties:
+                    relation: { type: string, description: "supersedes | superseded_by | related | contradicts | duplicates | confirms | derived_from" }
+                    to: { $ref: "types.yaml#/$defs/Id" }
+              folded_under: { $ref: "types.yaml#/$defs/Id" }
+        hidden: { type: array, items: { $ref: "types.yaml#/$defs/Hidden" } }
+      additionalProperties: false
+    budget_ms: 500
+    tool:
+      params:
+        family: "One of decision, proposal, finding, question, event, document, note, outcome: every type of that family in any vocabulary."
+      title: Project timeline
+      idempotent: true
+      description: >-
+        Statements of a project in time order with explicit links (supersedes, related, contradicts…). Use to explain
+        how a decision evolved.
+
+  # ---------- journal ----------
+  journal.changes:
+    kind: query
+    slice: 1
+    scenarios: [R5, R14]
+    auth: consumer
+    description: >-
+      Події за seq строго зростаючі, без дірок і дублів. Курсор = останній seq. journal.purged, journal.quarantined і
+      journal.released приходять як звичайні події й завжди проходять фільтр types (фільтр project
+      діє); payload подій сутності на карантині маскується ({purged: true, quarantined: true}) до journal.released.
+    input:
+      type: object
+      required: [since_seq]
+      properties:
+        since_seq: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        types: { type: array, items: { type: string }, maxItems: 50 }
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        with_payload: { type: boolean, default: true }
+      additionalProperties: false
+    output:
+      type: object
+      required: [events, next_seq, last_seq]
+      properties:
+        events: { type: array, items: { $ref: "envelope.yaml#/schema" } }
+        next_seq: { type: integer, description: "Передати як since_seq наступного разу." }
+        last_seq: { type: integer, description: "Хвіст журналу — щоб споживач бачив свій борг." }
+      additionalProperties: false
+    budget_ms: 50
+    tool:
+      title: Journal changes
+      idempotent: true
+      description: >-
+        For service consumers: events after a sequence number, gapless and in order; pass next_seq back next time.
+        Events of erased or quarantined entities (journal.purged, journal.quarantined): drop your copy of their
+        content, keep the number; on journal.released re-read the entity. journal.* events always pass the types
+        filter.
+
+  journal.trace:
+    kind: query
+    slice: 2
+    status: planned
+    scenarios: [R11]
+    description: Дерево причинності від події/твердження до кореневого актора.
+
+  journal.purge:
+    kind: command
+    slice: 1
+    scenarios: [R5, R16]
+    auth: admin
+    description: >-
+      Фізичне стирання вмісту сутності. Записується подією journal.purged; payload попередніх подій замінюється маркером,
+      що зберігає лише структуру (проєкт, тип, номер; для задачі — статус, вид, пріоритет…). Поки — запис або задача
+      (target.entity_type statement | task); інші типи — invalid_input.
+    input:
+      type: object
+      required: [target, reason]
+      properties:
+        target: { $ref: "types.yaml#/$defs/EntityRef" }
+        reason: { text: free, type: string, minLength: 1, maxLength: 1000 }
+        legal_basis: { text: line, type: string, maxLength: 200 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [journal.purged]
+    tool:
+      title: Purge entity content
+      destructive: true
+      description: >-
+        Admin only. Physically erase the content of a record or a task (legal request, leaked secret). Irreversible;
+        the journal keeps a marker event with the reason, and the number keeps answering with a tombstone.
+
+  journal.quarantine:
+    kind: command
+    slice: 1
+    scenarios: [R5, R16]
+    description: >-
+      Карантин: будь-який актор, якому сутність видна, ховає запис чи задачу з усіх читань, пошуку й
+      журналу назовні; вміст не стирається. Ідемпотентно (already). Знімає лише людина (journal.release).
+    input:
+      type: object
+      required: [ref, reason]
+      properties:
+        ref: { text: id, type: string, minLength: 1, maxLength: 300, description: "R-N, [<проєкт>/]T-N або id запису чи задачі." }
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        reason: { text: free, type: string, minLength: 1, maxLength: 1000 }
+        secret: { type: boolean, description: "У вмісті секрет." }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [journal.quarantined]
+    errors: [statement_not_found, task_not_found, entity_not_found, already_purged, invalid_input]
+    tool:
+      title: Quarantine a record or task
+      params:
+        reason: "Why, without the substance: \"secret in the body\", not the secret itself. Everyone who follows the ref sees it."
+        secret: "true when the content holds a secret (password, token, key)."
+      description: >-
+        Hide a record or task at once from every read and search, without erasing it — for a leaked secret or personal
+        data you notice, yours or not. The content stays stored until the user approves its erasure: with secret: true
+        a purge proposal is made for the user's GO — do not report the secret as gone. Reversible only by the user
+        (journal_release).
+  journal.release:
+    kind: command
+    slice: 1
+    scenarios: [R5, R16]
+    description: Зняття карантину — лише людина (release_requires_human), як approval.grant.
+    input:
+      type: object
+      required: [ref, reason]
+      properties:
+        ref: { text: id, type: string, minLength: 1, maxLength: 300, description: "R-N, [<проєкт>/]T-N або id запису чи задачі." }
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        reason: { text: free, type: string, minLength: 1, maxLength: 1000 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [journal.released]
+    errors: [statement_not_found, task_not_found, entity_not_found, release_requires_human, not_quarantined, already_purged]
+    tool:
+      title: Release from quarantine
+      description: >-
+        Show a quarantined record or task again — only when the user said so in this conversation; an agent never
+        releases on its own.
+
+  deletion.propose:
+    kind: command
+    slice: 1
+    scenarios: [R5, R16]
+    description: >-
+      Пропозиція видалення D-N: будь-хто пропонує відкликати чи стерти запис або задачу; відповідь — номер
+      і вплив. Виконує лише GO людини (deletion.approve). Відкрита пропозиція на ту саму ціль і дію — already.
+    input:
+      type: object
+      required: [ref, action, reason]
+      properties:
+        ref: { text: id, type: string, minLength: 1, maxLength: 300, description: "R-N, [<проєкт>/]T-N або id запису чи задачі." }
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        action: { enum: [retract, purge] }
+        reason: { text: free, type: string, minLength: 1, maxLength: 1000 }
+        secret: { type: boolean }
+      additionalProperties: false
+    output:
+      type: object
+      required: [deletion_id, ref, state, impact]
+      properties:
+        deletion_id: { $ref: "types.yaml#/$defs/Id" }
+        ref: { type: string, description: "<проєкт>/D-N" }
+        state: { enum: [open, approved, done, rejected] }
+        impact: { type: object, description: "Повний вплив, як deletion.impact." }
+        already: { type: boolean }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    emits: [deletion.proposed]
+    errors: [statement_not_found, task_not_found, entity_not_found, already_purged, already_retracted, invalid_input]
+    tool:
+      title: Propose a deletion
+      params:
+        reason: "Why, without the substance (\"secret in the body\", not the secret). Everyone who follows the ref sees it."
+      description: >-
+        Propose to retract or erase a record or a task that is not yours to remove — the user decides. The answer names
+        the proposal (<project>/D-N) and what depends on the target; nothing is removed until the user's GO. For a
+        leaked secret, quarantine it first (journal_quarantine).
+  deletion.approve:
+    kind: command
+    slice: 1
+    scenarios: [R5, R16]
+    description: >-
+      GO людини на пропозицію (як approval.grant): відкликання — у тій самій транзакції, стирання — worker за секунди.
+      Вплив перераховується; змінився від знімка — impact_changed, GO дається ще раз на новий.
+    input:
+      type: object
+      required: [deletion]
+      properties:
+        deletion: { text: id, type: string, minLength: 1, maxLength: 300, description: "[<проєкт>/]D-N або id пропозиції." }
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        impact: { type: object, additionalProperties: { type: integer, minimum: 0 }, description: "Кількості, які бачила людина (з impact_changed); без нього — знімок пропозиції." }
+        note: { text: free, type: string, maxLength: 1000 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/DeletionAck" }
+    emits: [deletion.approved, statement.retracted, task.retracted]
+    errors: [deletion_not_found, deletion_closed, deletion_requires_human, impact_changed]
+    tool:
+      title: Approve a deletion
+      destructive: true
+      description: >-
+        Record the user's GO on a deletion proposal — only when the user said so in this conversation; an agent never
+        approves on its own. A retract is done at once; an erase is irreversible and is done within seconds.
+  deletion.reject:
+    kind: command
+    slice: 1
+    scenarios: [R5, R16]
+    description: Людина відхиляє пропозицію (deletion_requires_human); нічого не видаляється.
+    input:
+      type: object
+      required: [deletion, reason]
+      properties:
+        deletion: { text: id, type: string, minLength: 1, maxLength: 300, description: "[<проєкт>/]D-N або id пропозиції." }
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        reason: { text: free, type: string, minLength: 1, maxLength: 1000 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/DeletionAck" }
+    emits: [deletion.rejected]
+    errors: [deletion_not_found, deletion_closed, deletion_requires_human]
+    tool:
+      title: Reject a deletion
+      description: Record the user's decision to keep the target of a deletion proposal — only when the user said so.
+  deletion.list:
+    kind: query
+    slice: 1
+    scenarios: [R5, R16]
+    description: Пропозиції видалення; за замовчуванням — ті, що чекають (open, approved).
+    input:
+      type: object
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        state: { enum: [waiting, open, approved, done, rejected, all], default: waiting }
+        limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { type: object, description: "ref, target {entity_type, entity_id, ref, state}, action, reason, secret, impact, state, proposed_by, proposed_at, decided_by, decided_at, note" } }
+      additionalProperties: false
+    tool:
+      title: List deletion proposals
+      idempotent: true
+      description: Deletion proposals waiting for the user's decision (or all of them), with their targets and impact.
+
+  # ---------- deletion ----------
+  deletion.impact:
+    kind: query
+    slice: 1
+    scenarios: [R5, R16]
+    description: >-
+      Вплив перед видаленням: живі вхідні зв'язки на сутність, згруповані за relation (як їх бачить ціль:
+      mentions_by, depends_on_by…) — кількість і ≤ 20 новіших; підсумки сесій про неї; для проєкту — що він містить.
+      Лише читання; видалення не каскадне — перелічене не змінюється. Ціль може бути вже відкликаною чи стертою.
+    input:
+      type: object
+      required: [ref]
+      properties:
+        ref: { type: string, minLength: 1, maxLength: 300, description: "R-N, [<проєкт>/]T-, W-, X-N, id сутності або назва проєкту." }
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [target, incoming, outcomes, hidden]
+      properties:
+        target: { type: object, description: "entity_type, entity_id, ref; state — retracted / quarantined / purged, якщо ціль уже не жива." }
+        incoming:
+          type: array
+          items:
+            type: object
+            required: [relation, count, sample]
+            properties:
+              relation: { type: string }
+              count: { type: integer, minimum: 1 }
+              sample: { type: array, items: { type: object, description: "entity_type, entity_id, ref, state" } }
+        outcomes: { type: integer, minimum: 0 }
+        contents:
+          type: object
+          description: Лише для проєкту.
+          properties:
+            statements: { type: integer }
+            tasks: { type: integer }
+            workflows: { type: integer }
+        hidden: { type: array, items: { $ref: "types.yaml#/$defs/Hidden" } }
+      additionalProperties: false
+    budget_ms: 200
+    tool:
+      title: Impact of deleting
+      idempotent: true
+      params:
+        ref: "R-498, T-12 or <project>/T-12, W-3, X-17, an id, or a project's name."
+        project: "Project of a short ref (T-12)."
+      description: >-
+        Before retracting, archiving or erasing anything, show the user who depends on it: what links to it (records
+        and tasks that mention it, tasks that depend on it), outcomes about it and, for a project, what it holds.
+        Deletion never changes those — they stay as they are.
+
+  # ---------- project / task / fact ----------
+  project.declare:
+    kind: command
+    slice: 1
+    scenarios: [R1, R14]
+    input:
+      type: object
+      properties:
+        name: { text: id, $ref: "types.yaml#/$defs/ProjectName" }
+        title: { text: line, $ref: "types.yaml#/$defs/ProjectTitle" }
+        summary: { text: free, type: string, maxLength: 4000 }
+        repo_url: { text: id, type: string, maxLength: 512 }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Клас усього в проєкті (Д9); за замовчуванням internal." }
+        scope: { text: line, type: string, maxLength: 200, description: "Межі проєкту одним рядком: що сюди належить." }
+      additionalProperties: false
+      anyOf: [{ required: [name] }, { required: [title] }]
+    output:
+      type: object
+      required: [project_id, event_id, seq, created]
+      properties:
+        project_id: { $ref: "types.yaml#/$defs/Id" }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+        created: { type: boolean, description: "false — проєкт уже існував, повернуто його id (ідемпотентно за name)." }
+      additionalProperties: false
+    emits: [project.declared]
+    idempotency: "За name у межах tenant."
+    tool:
+      title: Create project
+      description: >-
+        Create a project. Pass a human `title` (any language) and optionally a `name` slug; without a slug one is derived
+        from the title. `scope` says in one line what belongs to the project. Creating twice with the same slug returns the existing project. project_resume with
+        auto_create does the same and opens a session.
+
+  project.amend:
+    kind: command
+    slice: 1
+    scenarios: [R1, R14]
+    input:
+      type: object
+      required: [project]
+      minProperties: 2
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        name: { text: id, $ref: "types.yaml#/$defs/ProjectName", description: "Зміна slug — ламає прив'язки тек." }
+        title: { text: line, $ref: "types.yaml#/$defs/ProjectTitle" }
+        summary: { text: free, type: string, maxLength: 4000 }
+        repo_url: { text: id, type: string, maxLength: 512 }
+        labels: { type: array, maxItems: 20, items: { text: id, $ref: "types.yaml#/$defs/Label" } }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Новий клас проєкту (Д9): власник може підняти чи знизити." }
+        scope: { text: line, type: string, maxLength: 200, description: "Межі проєкту одним рядком: що сюди належить." }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [project.amended]
+    tool:
+      title: Edit project
+      description: >-
+        Change a project's title, summary, scope (one line: what belongs here), repository URL or labels. Changing the slug (`name`) breaks folder bindings
+        of plugins — prefer changing the title.
+
+  project.transition:
+    kind: command
+    slice: 1
+    scenarios: [R1, R8, R14]
+    description: "active → paused → archived і назад. archived не видаляє: search за замовчуванням шукає і в архівних."
+    input:
+      type: object
+      required: [project, status]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        status: { $ref: "types.yaml#/$defs/ProjectStatus" }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [project.transitioned]
+    tool:
+      title: Change project status
+      idempotent: true
+      description: >-
+        Move a project between active, paused and archived. Archived projects stay searchable and can come back.
+
+  project.list:
+    kind: query
+    slice: 1
+    scenarios: [R1, R14]
+    input:
+      type: object
+      properties:
+        status: { $ref: "types.yaml#/$defs/ProjectStatus" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "read-models.yaml#/read_models/projects/row" } }
+      additionalProperties: false
+    tool:
+      title: List projects
+      chat: true
+      idempotent: true
+      description: >-
+        The user's projects with status, title and counts. project_resume without arguments gives a shorter catalog —
+        use this one for filtering by status.
+
+  attachment.record:
+    kind: command
+    slice: 1
+    scenarios: [R14]
+    description: Додати файл до проєкту — байти в теці даних апки за SHA-256, у журналі лише опис.
+    input:
+      type: object
+      required: [project, name, content_base64]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        name: { text: id, type: string, minLength: 1, maxLength: 255 }
+        mime: { text: id, type: string, maxLength: 100 }
+        content_base64: { text: id, type: string, maxLength: 14000000, description: "Файл у base64, до 10 МБ." }
+      additionalProperties: false
+    output:
+      type: object
+      required: [attachment_id, ref, sha256, name, size]
+      properties:
+        attachment_id: { $ref: "types.yaml#/$defs/Id" }
+        ref: { type: string, description: "att:<12 знаків sha256> — так запис називає файл у files." }
+        sha256: { type: string }
+        name: { type: string }
+        size: { type: integer }
+        already: { type: boolean }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+        warnings: { type: array, items: { type: string } }
+      additionalProperties: false
+    emits: [attachment.added]
+    idempotency: "Той самий файл у тому самому проєкті — already: true, без нової події."
+    tool:
+      title: Attach a file
+      description: >-
+        Store a file of the project (a contract scan, a photo, an estimate; up to 10 MB, base64) and get its ref
+        att:<sha>; name it in files of the record it belongs to. The person downloads it in the viewer.
+
+  attachment.list:
+    kind: query
+    slice: 1
+    scenarios: [R14]
+    description: Файли проєкту, новіші першими, з посиланням на завантаження в переглядачі.
+    input:
+      type: object
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        ref: { type: string, maxLength: 80, description: "att:<sha…> — один файл." }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { type: object } }
+      additionalProperties: false
+    tool:
+      title: List files
+      idempotent: true
+      description: The files of a project with their refs (att:…), names, sizes and the viewer path to download them.
+
+  ledger.read:
+    kind: query
+    slice: 1
+    scenarios: [R14]
+    description: Суми чинних записів із полем amount (cost, price) — за валютою і групою, без моделі.
+    input:
+      type: object
+      required: [project]
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        type: { $ref: "types.yaml#/$defs/StatementType" }
+        group_by: { type: string, enum: [type, payee, month], default: type }
+        date_from: { type: string, format: date }
+        date_to: { type: string, format: date }
+      additionalProperties: false
+    output:
+      type: object
+      required: [rows, totals, hidden]
+      properties:
+        rows: { type: array, items: { type: object } }
+        totals: { type: array, items: { type: object } }
+        hidden: { type: array, items: { $ref: "types.yaml#/$defs/Hidden" } }
+      additionalProperties: false
+    tool:
+      title: Sum the money
+      idempotent: true
+      description: >-
+        Totals of the project's current records that carry an amount in fields (expenses, payments, repair cost,
+        contract price), per currency, grouped by type, payee or month; optional date range by paid_at. Use it instead
+        of adding sums up yourself.
+
+  project.pack:
+    kind: query
+    slice: 1
+    scenarios: [R14]
+    description: Посилання на архів проєкту в переглядачі (markdown записів і задач у zip) — для людини.
+    input:
+      type: object
+      required: [project]
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [project, path]
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectName" }
+        path: { type: string, description: "Шлях у переглядачі цього сервера: /viewer/export/<project>.zip." }
+        hint: { type: string }
+      additionalProperties: false
+    tool:
+      title: Pack project for the person
+      idempotent: true
+      description: >-
+        A link for the person to download the whole project (records and tasks as markdown in a zip) from the viewer
+        of this server. Give the person the path; you cannot open it yourself.
+
+  layer.list:
+    kind: query
+    slice: 1
+    scenarios: [R1, R14]
+    description: >-
+      Розв'язаний стек шарів проєкту без відкриття сесії: те саме, що bundle.layers у project.resume.
+      Для торкання проєкту в плагіні Claude Code (PostToolUse) і для суб-агентів (SubagentStart).
+    input:
+      type: object
+      required: [project]
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+      additionalProperties: false
+    output: { $ref: "read-models.yaml#/read_models/context_bundle/shape/properties/layers" }
+    tool:
+      title: List layer rules
+      idempotent: true
+      description: >-
+        The resolved rules of a project's layers (global → spaces → project, the narrower one wins), each with its
+        layer and source, without opening a session. Use it when work touches another project than the one of your
+        session, or to show the rules.
+
+  vocabulary.list:
+    kind: query
+    slice: 1
+    scenarios: [R1, R14]
+    description: >-
+      Каталог вбудованих словників використання: ключ, версія, назва, призначення, скільки
+      живих типів; з project — чи ввімкнено словник у наборі проєкту (стек шарів, vocab.ProjectSet).
+    input:
+      type: object
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [vocabularies]
+      properties:
+        vocabularies:
+          type: array
+          items:
+            type: object
+            required: [key, version, title, purpose, types]
+            properties:
+              key: { type: string }
+              version: { type: integer }
+              title: { type: object }
+              purpose: { type: string }
+              types: { type: integer }
+              includes: { type: integer }
+              enabled: { type: boolean }
+            additionalProperties: false
+      additionalProperties: false
+    errors: [project_not_found, project_ambiguous]
+    tool:
+      title: List vocabularies
+      idempotent: true
+      params:
+        project: "Project slug or title: marks which vocabularies are enabled in it. Omit for the bare catalog."
+      description: >-
+        The built-in usage vocabularies (record types grouped by domain: dev, dba, infra, hr…) with their purpose and
+        size; with a project, which of them are enabled there. Use when a type you need is missing from the project's
+        vocabulary block, then vocabulary_read for the types. Enabling one is the user's decision (fact_record kind
+        vocabulary).
+
+  vocabulary.read:
+    kind: query
+    slice: 1
+    scenarios: [R1]
+    description: "Повний вбудований словник: типи з родиною, описом для моделі, шаблоном і тегами, includes."
+    input:
+      type: object
+      required: [key]
+      properties:
+        key: { type: string, maxLength: 63 }
+        version: { type: integer, minimum: 1, description: "Лише поточна версія; інша — vocabulary_not_found." }
+      additionalProperties: false
+    output:
+      type: object
+      required: [key, version, title, purpose, types]
+      properties:
+        key: { type: string }
+        version: { type: integer }
+        title: { type: object }
+        purpose: { type: string }
+        types: { type: array, items: { type: object } }
+        includes: { type: array, items: { type: string } }
+      additionalProperties: false
+    errors: [vocabulary_not_found]
+    tool:
+      title: Read a vocabulary
+      idempotent: true
+      params:
+        key: "Vocabulary key from vocabulary_list, e.g. dba."
+        version: "Optional; only the current version is served."
+      description: >-
+        One built-in vocabulary in full: each record type with its family, what it is for, a body template and tags.
+        Use before writing a record of a type you have not used yet. Types it includes from other vocabularies are
+        listed by name only; read their own vocabulary for the text.
+
+  task.declare:
+    kind: command
+    slice: 1
+    scenarios: [R1, R8, R14]
+    description: Задача за моделлю todo v2. num присвоює сервер (max+1 у проєкті). Відкритий пункт з тим самим title не дублюється.
+    input:
+      type: object
+      required: [project, title]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        status: { $ref: "types.yaml#/$defs/TaskOpenStatus", default: open }
+        title: { text: line, $ref: "types.yaml#/$defs/ShortText" }
+        body: { text: free, type: string, maxLength: 8192 }
+        kind: { $ref: "types.yaml#/$defs/TaskKind" }
+        priority: { $ref: "types.yaml#/$defs/TaskPriority" }
+        rank: { type: integer }
+        role: { $ref: "types.yaml#/$defs/TaskRole" }
+        owner: { text: id, type: string, maxLength: 100 }
+        owner_project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        assignee: { $ref: "types.yaml#/$defs/TaskAssignee" }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Підняти клас проєкту для цієї задачі (Д9)." }
+        due: { type: string, format: date }
+        parent: { $ref: "types.yaml#/$defs/TaskNum" }
+        acceptance: { text: free, type: string, maxLength: 4000 }
+        severity: { $ref: "types.yaml#/$defs/Severity" }
+        labels: { type: array, items: { text: id, type: string, minLength: 1, maxLength: 60 }, maxItems: 20 }
+        refs: { $ref: "types.yaml#/$defs/Refs" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [task_id, num, event_id, seq]
+      properties:
+        task_id: { $ref: "types.yaml#/$defs/Id" }
+        num: { $ref: "types.yaml#/$defs/TaskNum" }
+        ref: { type: string, description: "<проєкт>/T-<num>." }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+        existed: { type: boolean, description: "Відкрита задача з тим самим title вже була — повернуто її." }
+        ignored_fields: { type: array, items: { type: string }, description: "При existed: поля цього виклику, які НЕ застосовано (задача вже є) — змінити їх можна task_amend." }
+      additionalProperties: false
+    emits: [task.declared, link.asserted]
+    idempotency: "Відкрита задача з тим самим title у проєкті — existed: true, без нової події."
+    errors: [project_not_found, parent_not_found, ref_not_found]
+    tool:
+      params:
+        project: "Project slug or title."
+        refs: "What this task refers to: R-498 (a record), T-12 or <project>/T-12, W-3, X-17, or jira:ABC-1, pr:<url>. Internal refs must exist; they become links."
+        owner: "Legacy free text; prefer owner_project and assignee."
+        owner_project: "Another project that executes this task (a handoff); omit when the task's own project does it."
+        assignee: "Who does it: exactly one of actor_id, role (dev, ops, qa…) or agent (a subagent role like planner)."
+      title: Add task
+      chat: true
+      description: >-
+        Add a to-do item to the project: title, optional body, kind (task, bug, requirement, question, risk, test),
+        priority, assignee, due date, parent, the executing project when it is another one. The server assigns a permanent number. An open task with the same title is
+        returned instead of a duplicate.
+
+  task.amend:
+    kind: command
+    slice: 1
+    scenarios: [R8, R14]
+    description: Оновлюються лише передані поля; null очищає необов'язкове. status — лише відкриті (закриття — task.close, повторне відкриття — task.reopen).
+    input:
+      type: object
+      minProperties: 2
+      oneOf: [{ required: [task_id] }, { required: [project, num] }]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef", description: "Разом із num — замість task_id." }
+        num: { $ref: "types.yaml#/$defs/TaskNum" }
+        task_id: { $ref: "types.yaml#/$defs/Id" }
+        if_revision: { type: integer, minimum: 1 }
+        status: { $ref: "types.yaml#/$defs/TaskOpenStatus" }
+        title: { text: line, $ref: "types.yaml#/$defs/ShortText" }
+        body: { text: free, type: string, maxLength: 8192 }
+        kind: { $ref: "types.yaml#/$defs/TaskKind" }
+        priority: { $ref: "types.yaml#/$defs/TaskPriority" }
+        rank: { type: integer }
+        role: { $ref: "types.yaml#/$defs/TaskRole" }
+        owner: { text: id, type: string, maxLength: 100 }
+        owner_project: { oneOf: [ { text: id, $ref: "types.yaml#/$defs/ProjectRef" }, { type: "null" } ] }
+        assignee: { oneOf: [ { $ref: "types.yaml#/$defs/TaskAssignee" }, { type: "null" } ] }
+        data_class: { $ref: "types.yaml#/$defs/DataClass", description: "Лише вищий за чинний клас задачі; не очищується." }
+        due: { type: string, format: date }
+        parent: { $ref: "types.yaml#/$defs/TaskNum" }
+        acceptance: { text: free, type: string, maxLength: 4000 }
+        severity: { $ref: "types.yaml#/$defs/Severity" }
+        labels: { type: array, items: { text: id, type: string, minLength: 1, maxLength: 60 }, maxItems: 20 }
+        refs: { $ref: "types.yaml#/$defs/Refs" }
+        resolution: { text: free, type: [string, "null"], maxLength: 4000 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [task.amended, link.asserted, link.retired]
+    errors: [task_not_found, revision_conflict, parent_not_found, ref_not_found]
+    tool:
+      executor:
+        params: [project, num, task_id, status, title, body, resolution, refs]
+        description: "Change a task your step works on (project + num, or task_id): status, title, body, resolution. Only the fields you pass change."
+      params:
+        resolution: "How it ended; null clears."
+        owner_project: "Another project that executes this task; null — its own project."
+        assignee: "Exactly one of actor_id, role or agent; null clears."
+      title: Update task
+      chat: true
+      description: >-
+        Change a task by its number: status among the open ones (in_progress, review, blocked…), priority, assignee, body,
+        labels and so on — pass only what changes; null clears a field. To finish a task use task_close.
+
+  task.close:
+    kind: command
+    slice: 1
+    scenarios: [R8, R14]
+    input:
+      type: object
+      required: [outcome]
+      oneOf: [{ required: [task_id] }, { required: [project, num] }]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef", description: "Разом із num — замість task_id." }
+        num: { $ref: "types.yaml#/$defs/TaskNum" }
+        task_id: { $ref: "types.yaml#/$defs/Id" }
+        outcome: { $ref: "types.yaml#/$defs/TaskOutcome" }
+        resolution: { text: free, type: string, maxLength: 4000 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [task.closed]
+    idempotency: "Закрита задача — already: true."
+    errors: [task_not_found]
+    tool:
+      params:
+        outcome: "\"done\" or \"dropped\"."
+        resolution: "How it ended."
+      title: Close task
+      chat: true
+      idempotent: true
+      description: >-
+        Finish a task: outcome "done" (completed) or "dropped" (decided not to do), with a resolution — how it ended.
+
+  task.reopen:
+    kind: command
+    slice: 1
+    scenarios: [R8, R14]
+    input:
+      type: object
+      oneOf: [{ required: [task_id] }, { required: [project, num] }]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef", description: "Разом із num — замість task_id." }
+        num: { $ref: "types.yaml#/$defs/TaskNum" }
+        task_id: { $ref: "types.yaml#/$defs/Id" }
+        status: { $ref: "types.yaml#/$defs/TaskOpenStatus", default: open }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [task.reopened]
+    idempotency: "Відкрита задача — already: true."
+    errors: [task_not_found]
+    tool:
+      title: Reopen task
+      idempotent: true
+      description: >-
+        Bring a closed task back to work, optionally with a status and a reason.
+
+  task.retract:
+    kind: command
+    slice: 1
+    scenarios: [R8, R14]
+    description: Лише для помилкових (дубль, не той проєкт) — зникає зі списків, у журналі лишається. «Не робимо» — task.close(dropped).
+    input:
+      type: object
+      required: [reason]
+      oneOf: [{ required: [task_id] }, { required: [project, num] }]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef", description: "Разом із num — замість task_id." }
+        num: { $ref: "types.yaml#/$defs/TaskNum" }
+        task_id: { $ref: "types.yaml#/$defs/Id" }
+        reason: { text: free, type: string, minLength: 1, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [task.retracted]
+    errors: [task_not_found]
+    tool:
+      title: Remove task
+      destructive: true
+      description: >-
+        Only for tasks created by mistake (duplicate, wrong project): removes it from lists, history keeps it. A task
+        that will not be done → task_close with outcome "dropped".
+
+  task.list:
+    kind: query
+    slice: 1
+    scenarios: [R1, R8, R14]
+    description: Задачі проєкту в порядку «що далі» (in_progress → review → testing → analysis → open → blocked → waiting → backlog; далі rank, priority, num). За замовчуванням — відкриті, без body.
+    input:
+      type: object
+      required: [project]
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        state: { type: string, enum: [open, closed, all], default: open }
+        status: { type: array, items: { $ref: "types.yaml#/$defs/TaskStatus" }, maxItems: 10 }
+        kind: { type: array, items: { $ref: "types.yaml#/$defs/TaskKind" }, maxItems: 6 }
+        role: { $ref: "types.yaml#/$defs/TaskRole" }
+        owner: { type: string }
+        assignee_role: { $ref: "types.yaml#/$defs/TaskRole" }
+        label: { type: string }
+        priority: { $ref: "types.yaml#/$defs/TaskPriority" }
+        query: { type: string, maxLength: 500 }
+        nums: { type: array, items: { $ref: "types.yaml#/$defs/TaskNum" }, maxItems: 100 }
+        include_body: { type: boolean, default: false }
+        limit: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items, counts]
+      properties:
+        items: { type: array, items: { $ref: "read-models.yaml#/read_models/tasks/row" } }
+        counts: { type: object, additionalProperties: { type: integer }, description: "Кількість за статусом у проєкті (усі, не лише видані)." }
+      additionalProperties: false
+    tool:
+      title: List tasks
+      idempotent: true
+      description: >-
+        Tasks of a project in "what next" order (in progress, review, testing, analysis, open, blocked, waiting,
+        backlog), filtered by state, status, kind, role, owner, label or text; bodies only on request.
+
+  fact.record:
+    kind: command
+    slice: 1
+    scenarios: [R1, R14]
+    description: UPSERT за (project, kind, key) — семантика фасаду project_items. credential — лише secret_ref.
+    input:
+      type: object
+      required: [project, kind, key]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        kind: { $ref: "types.yaml#/$defs/FactKind" }
+        key: { text: id, type: string, minLength: 1, maxLength: 200 }
+        value: { text: free, type: string, maxLength: 8192 }
+        secret_ref: { text: id, type: string, maxLength: 512 }
+        source: { text: id, type: string, maxLength: 300, description: "Запис, з якого взято факт: R-N. Коли його замінять чи відкличуть, fact_list і пакет старту позначать факт stale з replaced_by." }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [fact.recorded]
+    idempotency: "Той самий value для того самого key — без нової події (unchanged: true)."
+    errors: [credential_value_forbidden, retention_purge_requires_human, retention_record_requires_human]
+    tool:
+      title: Record project fact
+      idempotent: true
+      description: >-
+        Set a durable fact of the project by kind and key (architecture, tech_stack, access, note; binding = a folder of a machine bound to the project, kept by the Claude Code plugin; instruction, style, agent, skill = rules of the project layer; credential = only a
+        secret reference like "openbao:path", never the value; retention = a retention label of the project, value JSON {"applies_to": "record" | a record type | "task" (closed tasks), "after_days": N or "retain_until": "YYYY-MM-DD", "action": "retract" | "purge"} — the worker applies it daily at 03:30 Europe/Kyiv to what is older; set one only when the user asked; "purge" (irreversible) and "applies_to": "record" (every record) only the user may set — you may label a record type). Same key again replaces the value.
+
+  fact.retire:
+    kind: command
+    slice: 1
+    scenarios: [R14]
+    input:
+      type: object
+      required: [project, kind, key]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        kind: { $ref: "types.yaml#/$defs/FactKind" }
+        key: { text: id, type: string }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [fact.retired]
+    tool:
+      title: Retire project fact
+      idempotent: true
+      description: >-
+        Remove a project fact that no longer holds.
+
+  fact.list:
+    kind: query
+    slice: 1
+    scenarios: [R1, R14]
+    input:
+      type: object
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        kind: { $ref: "types.yaml#/$defs/FactKind" }
+        query: { type: string, maxLength: 500 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "read-models.yaml#/read_models/facts/row" } }
+      additionalProperties: false
+    tool:
+      title: List project facts
+      idempotent: true
+      description: >-
+        Durable facts of a project (architecture, stack, access, notes), optionally by kind or text.
+
+  work.open_items:
+    kind: query
+    slice: 1
+    scenarios: [R8]
+    description: Що не закрито — задачі за пріоритетом, твердження типу question без розв'язку, борг споживачів. Дорівнює перебудові з журналу.
+    input:
+      type: object
+      required: [project]
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [tasks, questions, consumers]
+      properties:
+        tasks: { type: array, items: { $ref: "read-models.yaml#/read_models/tasks/row" } }
+        questions: { type: array, items: { $ref: "read-models.yaml#/read_models/statements_current/index_row" } }
+        consumers: { type: array, items: { $ref: "read-models.yaml#/read_models/consumers/row" } }
+        deletions: { type: array, items: { type: object }, description: "Пропозиції видалення, що чекають рішення." }
+        cross_project:
+          type: object
+          description: "Звірка між проєктами: що виправити в дзеркалах і передачах і які задачі цього проєкту чекають інші. Немає чого — немає поля."
+          properties:
+            findings:
+              type: array
+              items:
+                type: object
+                required: [kind, task, title, hint]
+                properties:
+                  kind: { type: string, enum: [handoff_closed, handoff_gone, mirror_unlinked, duplicate_key] }
+                  task: { type: string, description: "<проєкт>/T-<num> цього проєкту." }
+                  title: { type: string }
+                  other: { type: string, description: "Задача іншого проєкту, якої стосується знахідка." }
+                  key: { type: string, description: "Спільний зовнішній ключ (jira:…) для duplicate_key." }
+                  hint: { type: string }
+                additionalProperties: false
+            waiting_on_us:
+              type: array
+              items:
+                type: object
+                required: [task, title, from]
+                properties:
+                  task: { type: string }
+                  title: { type: string }
+                  from: { type: string, description: "Дзеркало в іншому проєкті." }
+                additionalProperties: false
+          additionalProperties: false
+      additionalProperties: false
+    tool:
+      title: Open items
+      idempotent: true
+      description: >-
+        What is not closed in a project: tasks by priority, unanswered questions, consumers lagging behind, and the
+        cross-project check — mirrors whose owner task closed or vanished, mirrors without a handoff link, the same
+        Jira key open in two projects, and tasks other projects wait on.
+
+  # ---------- link ----------
+  link.assert:
+    kind: command
+    slice: 1
+    scenarios: [R7]
+    input:
+      type: object
+      required: [from, to, relation]
+      properties:
+        from: { $ref: "types.yaml#/$defs/EntityRef" }
+        to: { $ref: "types.yaml#/$defs/EntityRef" }
+        relation: { $ref: "types.yaml#/$defs/LinkRelation" }
+        note: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [link_id, event_id, seq]
+      properties:
+        link_id: { $ref: "types.yaml#/$defs/Id" }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    emits: [link.asserted]
+    idempotency: "За (from, to, relation)."
+    tool:
+      title: Link entities
+      idempotent: true
+      description: >-
+        Connect two entities (statements, projects, tasks…) with a relation: related, contradicts, duplicates,
+        confirms, depends_on, predecessor_of, parallel_line_of and so on.
+
+  link.retire:
+    kind: command
+    slice: 1
+    scenarios: [R7]
+    input:
+      type: object
+      required: [link_id]
+      properties:
+        link_id: { $ref: "types.yaml#/$defs/Id" }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [link.retired]
+    tool:
+      title: Remove link
+      idempotent: true
+      description: >-
+        Remove a link that was wrong or no longer holds.
+
+  # ---------- consumer ----------
+  consumer.checkpoint:
+    kind: command
+    slice: 1
+    scenarios: [R5, R14]
+    auth: consumer
+    input:
+      type: object
+      required: [consumer, seq]
+      properties:
+        consumer: { text: id, type: string, pattern: "^[a-z][a-z0-9-]*$" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [consumer.cursor_set]
+    idempotency: "seq ≤ поточного курсора — unchanged: true."
+    tool:
+      title: Consumer checkpoint
+      idempotent: true
+      description: >-
+        For service consumers: remember the last journal sequence number processed.
+
+  consumer.list:
+    kind: query
+    slice: 1
+    scenarios: [R1, R5, R14]
+    input:
+      type: object
+      properties:
+        consumer: { type: string }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items, last_seq]
+      properties:
+        items: { type: array, items: { $ref: "read-models.yaml#/read_models/consumers/row" } }
+        last_seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    tool:
+      title: List consumers
+      idempotent: true
+      description: >-
+        Consumers of the journal and how far each lags behind.
+
+  # ---------- actor / run ----------
+  actor.register:
+    kind: command
+    slice: 1
+    scenarios: [R11, R16]
+    description: Зареєструвати агента/сервіс/автоматику від імені себе. Людину реєструє система при першому вході.
+    input:
+      type: object
+      required: [kind, display_name]
+      properties:
+        kind: { $ref: "types.yaml#/$defs/ActorKind" }
+        display_name: { text: line, type: string, maxLength: 200 }
+        client: { $ref: "types.yaml#/$defs/ClientInfo" }
+        external_identity: { text: id, type: string, maxLength: 200 }
+        executor: { $ref: "types.yaml#/$defs/ExecutorProfile", description: "Профіль виконавця (лише agent / service)." }
+      additionalProperties: false
+    output:
+      type: object
+      required: [actor_id, event_id, seq]
+      properties:
+        actor_id: { $ref: "types.yaml#/$defs/Id" }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    emits: [actor.registered]
+    idempotency: "За (on_behalf_of, kind, external_identity)."
+    tool:
+      title: Register agent
+      description: >-
+        Register an agent, service or automation acting on the user's behalf, to give it its own identity and token.
+
+  actor.revoke:
+    kind: command
+    slice: 1
+    scenarios: [R11, R16]
+    input:
+      type: object
+      required: [actor_id, reason]
+      properties:
+        actor_id: { $ref: "types.yaml#/$defs/Id" }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [actor.revoked]
+    tool:
+      title: Revoke agent
+      destructive: true
+      description: >-
+        Revoke an agent or service registered earlier; its tokens stop working.
+
+  actor.amend:
+    kind: command
+    slice: 1
+    scenarios: [R11, R18]
+    description: Змінити назву чи профіль виконавця свого агента або сервісу (реєстр виконавців). Профіль передається повністю; null прибирає.
+    input:
+      type: object
+      required: [actor_id]
+      minProperties: 2
+      properties:
+        actor_id: { $ref: "types.yaml#/$defs/Id" }
+        display_name: { text: line, type: string, minLength: 1, maxLength: 200 }
+        executor: { oneOf: [ { $ref: "types.yaml#/$defs/ExecutorProfile" }, { type: "null" } ] }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [actor.amended]
+    errors: [forbidden, invalid_input]
+    tool:
+      title: Edit agent
+      params:
+        executor: "The whole executor profile (provider, model, key_kind, max_data_class…); null removes it."
+      description: >-
+        Change an agent or service of yours: its name or its executor profile — the provider and model it runs on,
+        the key reference, limits, what the provider does with data, and the highest data class it may receive.
+
+  actor.list:
+    kind: query
+    slice: 1
+    scenarios: [R16]
+    auth: admin
+    description: "Хто має доступ (рішення власника 2026-10-30): актори тенанта з видом, станом, роллю за живими токенами, кількістю токенів і живими OAuth-грантами (клієнт, вендор, профіль). Лише читання, без змін ролей."
+    input:
+      type: object
+      properties:
+        query: { type: string, maxLength: 200, description: "Підрядок імені чи e-mail, без урахування регістру." }
+        kind: { type: string, enum: [human, agent, service, automation] }
+        include_revoked: { type: boolean, default: false }
+        limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [actor_id, kind, display_name, registered_at, tokens, oauth]
+            properties:
+              actor_id: { $ref: "types.yaml#/$defs/Id" }
+              kind: { type: string }
+              display_name: { type: string }
+              email: { type: string }
+              on_behalf_of: { $ref: "types.yaml#/$defs/Id" }
+              registered_at: { type: string, format: date-time }
+              revoked_at: { type: string, format: date-time }
+              role: { type: string, enum: [admin, owner], description: "За живими токенами; немає — поля немає." }
+              tokens: { type: object, properties: { active: { type: integer }, last_used_at: { type: string, format: date-time } } }
+              oauth: { type: array, items: { type: object, properties: { client_id: { type: string }, vendor: { type: string }, profile: { type: string }, last_used_at: { type: string, format: date-time } } } }
+        truncated: { type: boolean, description: "Під фільтр підпадає більше акторів, ніж limit." }
+      additionalProperties: false
+    errors: [forbidden, invalid_input]
+    tool:
+      title: List actors
+      idempotent: true
+      params:
+        query: "Part of a name or an e-mail."
+        include_revoked: "Also list revoked actors."
+      description: >-
+        Admin only. Who has access to this server: people, agents and services with their state, role, number of
+        live tokens and live OAuth grants (client, vendor, profile, last use). Read-only — changes nothing.
+
+  run.start:
+    kind: command
+    slice: 1
+    scenarios: [R11]
+    description: "Явний старт прогону (суб-агент — з parent_run_id). Зазвичай не потрібен: context.open відкриває неявно."
+    input:
+      type: object
+      required: [client]
+      properties:
+        parent_run_id: { $ref: "types.yaml#/$defs/Id" }
+        client: { $ref: "types.yaml#/$defs/ClientInfo" }
+        purpose: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [run_id, event_id, seq]
+      properties:
+        run_id: { $ref: "types.yaml#/$defs/Id" }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    emits: [run.started]
+    tool:
+      title: Start run
+      description: >-
+        Low-level: start a run explicitly — a sub-agent passes parent_run_id and its role in `agent`. Sessions start runs
+        on their own; most clients never need this.
+
+  run.finish:
+    kind: command
+    slice: 1
+    scenarios: [R11]
+    input:
+      type: object
+      required: [run_id, outcome]
+      properties:
+        run_id: { $ref: "types.yaml#/$defs/Id" }
+        outcome: { type: string, enum: [ok, failed, aborted, timeout] }
+        note: { text: free, type: string }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [run.finished]
+    tool:
+      title: Finish run
+      idempotent: true
+      description: >-
+        Low-level: finish a run started with run_start, with its outcome.
+
+  # ---------- system ----------
+  system.whoami:
+    kind: query
+    slice: 1
+    scenarios: [R16, R14]
+    input: { type: object, additionalProperties: false }
+    output:
+      type: object
+      required: [actor, tenant_id, role]
+      properties:
+        actor: { $ref: "types.yaml#/$defs/ActorRef" }
+        tenant_id: { $ref: "types.yaml#/$defs/Id" }
+        role: { type: string, enum: [owner, admin, consumer] }
+        email: { type: string }
+      additionalProperties: false
+    tool:
+      title: Who am I
+      chat: true
+      idempotent: true
+      description: >-
+        Who this connection acts for: the person, role, profile and client as Litopys sees them. Use to check the
+        connection works or to answer "which account is this".
+
+  system.capabilities:
+    kind: query
+    slice: 1
+    scenarios: [R16, R12]
+    description: Що вміє цей екземпляр — версії спеки/конверта, зрізи, увімкнені модулі. Клієнти адаптуються, а не вгадують.
+    input: { type: object, additionalProperties: false }
+    output:
+      type: object
+      required: [spec_version, envelope_version, slices, verbs]
+      properties:
+        spec_version: { type: integer }
+        envelope_version: { type: integer }
+        slices: { type: array, items: { type: integer } }
+        verbs: { type: array, items: { type: string } }
+        modules: { type: array, items: { type: string } }
+        facades: { type: array, items: { type: string }, description: "напр. memory@1.0" }
+      additionalProperties: false
+    tool:
+      title: Capabilities
+      idempotent: true
+      description: >-
+        What this Litopys server offers: API and spec versions, the tools of this connection's profile, modules.
+
+  system.guide:
+    kind: query
+    slice: 1
+    scenarios: [R1]
+    description: "Посібник для будь-якого клієнта: без topic — зміст, з topic — плейбук англійською. Текст і version — з domain/guide (один джерело з instructions і rules). Без побічних ефектів."
+    input:
+      type: object
+      properties:
+        topic: { type: string, enum: [start, record, tasks, cross-project, search, close, delete] }
+      additionalProperties: false
+    output:
+      type: object
+      required: [topic, version, text, see_also]
+      properties:
+        topic: { type: string, description: "index без topic." }
+        version: { type: string, description: "Хеш текстів посібника: зміна тексту — новий version." }
+        text: { type: string }
+        see_also: { type: array, items: { type: string } }
+      additionalProperties: false
+    errors: [invalid_input]
+    tool:
+      title: Guide
+      chat: true
+      params:
+        topic: "One of: start, record, tasks, cross-project, search, close, delete. Omit for the list."
+      description: >-
+        How to use Litopys step by step: start, record, tasks, cross-project work, search, closing, deletion. Call
+        without topic for the list. Use when unsure what to do next or which tool fits.
+
+  system.health:
+    kind: query
+    slice: 1
+    scenarios: [R16]
+    auth: admin
+    input: { type: object, additionalProperties: false }
+    output:
+      type: object
+      required: [ok, last_seq, projector_lag_seq]
+      properties:
+        ok: { type: boolean }
+        last_seq: { type: integer }
+        projector_lag_seq: { type: integer, description: "Головний сигнал справності: наскільки проєкції відстають від журналу." }
+        consumers_lag: { type: object, additionalProperties: { type: integer } }
+        db: { type: object, additionalProperties: true }
+      additionalProperties: false
+    tool:
+      title: Health
+      idempotent: true
+      description: >-
+        Admin only. Journal head, projector lag and consumer lag of this server.
+
+  # ---------- зріз 2–3, заглушки ----------
+  evidence.attach: { kind: command, slice: 2, status: planned, scenarios: [R4], emits: [evidence.attached] }
+  conflict.resolve: { kind: command, slice: 2, status: planned, scenarios: [R9], emits: [conflict.resolved] }
+  referent.register: { kind: command, slice: 2, status: planned, scenarios: [R9, R11], emits: [referent.registered] }
+  referent.merge: { kind: command, slice: 2, status: planned, scenarios: [R9], emits: [referent.merged] }
+  referent.retire: { kind: command, slice: 2, status: planned, scenarios: [R9], emits: [referent.retired] }
+  subject.register: { kind: command, slice: 2, status: planned, scenarios: [R11], emits: [subject.registered] }
+  edge.assert: { kind: command, slice: 2, status: planned, scenarios: [R9, R11], emits: [edge.asserted] }
+  edge.retire: { kind: command, slice: 2, status: planned, scenarios: [R9], emits: [edge.retired] }
+  summary.produce: { kind: command, slice: 3, status: planned, scenarios: [R13], emits: [summary.produced, statement.folded, link.asserted] }
+  policy.set:
+    kind: command
+    slice: 1
+    scenarios: [R12, R15]
+    description: "Поставити, замінити (той самий name) або вимкнути (active=false) правило політики. scope tenant — лише admin."
+    input:
+      type: object
+      required: [name, scope, rule]
+      properties:
+        name: { text: id, type: string, pattern: "^[a-z][a-z0-9-]{0,62}$" }
+        scope: { enum: [tenant, owner] }
+        rule: { $ref: "types.yaml#/$defs/PolicyRule" }
+        active: { type: boolean, default: true }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [policy.set]
+    errors: [invalid_input, forbidden]
+    tool:
+      title: Set policy rule
+      description: >-
+        Set, replace or switch off a visibility rule: which projects a client or vendor may see, which labels are hidden,
+        which fact fields are redacted. Tenant-wide rules need the admin role.
+
+  policy.explain:
+    kind: query
+    slice: 1
+    scenarios: [R4, R15]
+    description: "Чому проєкт видно чи приховано для гранту: застосовні правила з подією, що їх поставила. Лише власнику даних (свої токени) або адміну."
+    input:
+      type: object
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        token_id: { $ref: "types.yaml#/$defs/Id", description: "Грант, для якого пояснити; за замовчуванням — поточний." }
+      additionalProperties: false
+    output:
+      type: object
+      required: [grant, projects]
+      properties:
+        grant: { type: object }
+        projects: { type: array, items: { type: object } }
+      additionalProperties: false
+    errors: [project_not_found, forbidden]
+    tool:
+      title: Explain policy
+      idempotent: true
+      description: >-
+        Why a project is visible or hidden for this connection (or another token of yours): the rules that apply and
+        who set them.
+
+  space.discover: { kind: query, slice: 3, status: planned, scenarios: [R12] }
+  space.publish: { kind: command, slice: 3, status: planned, scenarios: [R12], emits: [statement.published, link.asserted] }
+  space.withdraw: { kind: command, slice: 3, status: planned, scenarios: [R12], emits: [publication.withdrawn] }
+  visibility.grant: { kind: command, slice: 3, status: planned, scenarios: [R12, R15], emits: [visibility.granted] }
+  visibility.revoke: { kind: command, slice: 3, status: planned, scenarios: [R12, R15], emits: [visibility.revoked] }
+  attestation.withdraw: { kind: command, slice: 2, status: planned, scenarios: [R4], emits: [attestation.withdrawn] }
+
+  # ---------- Робочі процеси (зріз 2) ----------
+  workflow.declare:
+    kind: command
+    slice: 1
+    scenarios: [R17]
+    description: Новий процес з версією 1. Визначення перевіряється (унікальні ключі, next, умови CEL, поля за видом кроку).
+    input:
+      type: object
+      required: [project, key, title, definition]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        key: { text: id, $ref: "types.yaml#/$defs/WorkflowKey" }
+        title: { text: line, $ref: "types.yaml#/$defs/ShortText" }
+        purpose: { text: free, type: string, maxLength: 2000 }
+        definition: { $ref: "types.yaml#/$defs/WorkflowDefinition" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [workflow_id, version, event_id, seq]
+      properties:
+        workflow_id: { $ref: "types.yaml#/$defs/Id" }
+        num: { type: integer, minimum: 1, description: "Номер процесу в межах проєкту." }
+        ref: { type: string, description: "<проєкт>/W-<num>." }
+        version: { type: integer, minimum: 1 }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    emits: [workflow.declared]
+    idempotency: "Той самий key у проєкті — workflow_exists; нова версія — workflow.supersede."
+    errors: [project_not_found, workflow_exists, invalid_definition]
+    tool:
+      title: Declare workflow
+      params:
+        project: "Project slug or title."
+        key: "Stable key of the process in the project, e.g. fork-sync."
+        definition: "steps (key, title, kind: script | model | human | external | subworkflow, …), params, triggers."
+      description: >-
+        Save a repeatable process of the project as version 1: ordered steps with kind, executor class, allowed verbs,
+        approval points and CEL conditions. Use when a procedure is run again and again (release, deploy, harvest).
+        A changed procedure is a new version (workflow_supersede), not an edit.
+  workflow.amend:
+    kind: command
+    slice: 1
+    scenarios: [R17]
+    description: Метадані процесу (назва, призначення); кроки змінює лише нова версія.
+    input:
+      type: object
+      required: [project, key]
+      minProperties: 3
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        key: { text: id, $ref: "types.yaml#/$defs/WorkflowKey" }
+        title: { text: line, $ref: "types.yaml#/$defs/ShortText" }
+        purpose: { text: free, type: [string, "null"], maxLength: 2000 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [workflow.amended]
+    errors: [workflow_not_found]
+    tool:
+      title: Rename workflow
+      description: >-
+        Change the title or the purpose of a process; its steps change only through a new version (workflow_supersede).
+  workflow.supersede:
+    kind: command
+    slice: 1
+    scenarios: [R17]
+    description: Нова незмінна версія (повне визначення); виконання, що йдуть, лишаються на своїй. Те саме визначення — unchanged.
+    input:
+      type: object
+      required: [project, key, definition]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        key: { text: id, $ref: "types.yaml#/$defs/WorkflowKey" }
+        if_version: { type: integer, minimum: 1, description: "Захист від гонки: поточна версія має бути саме цією." }
+        definition: { $ref: "types.yaml#/$defs/WorkflowDefinition" }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [version]
+      properties:
+        version: { type: integer, minimum: 1 }
+        unchanged: { type: boolean }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    emits: [workflow.superseded]
+    idempotency: "Визначення, рівне поточній версії, — unchanged: true без нової події."
+    errors: [workflow_not_found, workflow_retired, version_conflict, invalid_definition]
+    tool:
+      title: New workflow version
+      idempotent: true
+      params:
+        if_version: "The version you edited; refused if another version came in between."
+        definition: "The full definition of the new version."
+      description: >-
+        Publish a changed process as a new immutable version: pass the full definition. Runs already in progress keep
+        their version. The same definition again changes nothing.
+  workflow.retire:
+    kind: command
+    slice: 1
+    scenarios: [R17]
+    input:
+      type: object
+      required: [project, key]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        key: { text: id, $ref: "types.yaml#/$defs/WorkflowKey" }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [workflow.retired]
+    idempotency: "Виведений процес — already: true."
+    errors: [workflow_not_found]
+    tool:
+      title: Retire workflow
+      idempotent: true
+      description: >-
+        Stop using a process: it can no longer be started; its versions stay readable.
+  workflow.list:
+    kind: query
+    slice: 1
+    scenarios: [R17]
+    description: Процеси проєкту з поточною версією; виведені — лише на запит.
+    input:
+      type: object
+      required: [project]
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        include_retired: { type: boolean, default: false }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "read-models.yaml#/read_models/workflows/row" } }
+      additionalProperties: false
+    tool:
+      title: List workflows
+      idempotent: true
+      description: >-
+        Processes of a project with their current version and number of steps; retired ones only on request.
+  workflow.read:
+    kind: query
+    slice: 1
+    scenarios: [R17]
+    description: Визначення версії (за замовчуванням — поточної); format skill — експорт у SKILL.md.
+    input:
+      type: object
+      required: [project, key]
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        key: { $ref: "types.yaml#/$defs/WorkflowKey" }
+        version: { type: integer, minimum: 1 }
+        format: { type: string, enum: [json, skill], default: json }
+      additionalProperties: false
+    output:
+      type: object
+      required: [workflow, version, definition]
+      properties:
+        workflow: { $ref: "read-models.yaml#/read_models/workflows/row" }
+        version: { type: integer, minimum: 1 }
+        definition: { $ref: "types.yaml#/$defs/WorkflowDefinition" }
+        reason: { type: string }
+        skill_md: { type: string, description: "Лише для format skill." }
+      additionalProperties: false
+    errors: [workflow_not_found, version_not_found]
+    tool:
+      title: Read workflow
+      idempotent: true
+      params:
+        version: "A past version; default the current one."
+        format: "skill also returns the process as a SKILL.md text for agent clients."
+      description: >-
+        The definition of a process: steps with kind, executor class, allowed verbs, approvals and conditions — the
+        current version or a past one; optionally as SKILL.md.
+  execution.start:
+    kind: command
+    slice: 1
+    scenarios: [R17]
+    description: Запуск процесу на версії (за замовчуванням — поточній); виведений процес не стартує.
+    input:
+      type: object
+      required: [project, workflow]
+      properties:
+        project: { text: id, $ref: "types.yaml#/$defs/ProjectRef" }
+        workflow: { text: id, $ref: "types.yaml#/$defs/WorkflowKey" }
+        version: { type: integer, minimum: 1 }
+        params: { text: id, type: object }
+        task_num: { $ref: "types.yaml#/$defs/TaskNum", description: "Задача проєкту, яку виконує цей запуск." }
+        parent_execution_id: { $ref: "types.yaml#/$defs/Id" }
+        parent_step_key: { text: id, $ref: "types.yaml#/$defs/StepKey" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [execution_id, version, ready, event_id, seq]
+      properties:
+        execution_id: { $ref: "types.yaml#/$defs/Id" }
+        num: { type: integer, minimum: 1, description: "Номер виконання в межах проєкту." }
+        ref: { type: string, description: "<проєкт>/X-<num>." }
+        version: { type: integer }
+        ready: { type: array, items: { $ref: "types.yaml#/$defs/StepKey" } }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    emits: [execution.started]
+    errors: [workflow_not_found, workflow_retired, version_not_found, task_not_found]
+    tool:
+      title: Start workflow run
+      params:
+        workflow: "Key of the process."
+        params: "Run parameters (the process params schema); conditions read them as params.<name>."
+      description: >-
+        Start a run of a project's process (its current version unless a version is given) and get the steps that are
+        ready. Then take each ready step with step_start, finish it with step_finish; human steps and approval points
+        wait for the user's GO (approval_grant).
+  execution.close:
+    kind: command
+    slice: 1
+    scenarios: [R17]
+    input:
+      type: object
+      required: [execution_id, outcome]
+      properties:
+        execution_id: { $ref: "types.yaml#/$defs/Id" }
+        outcome: { type: string, enum: [completed, failed, canceled] }
+        summary: { text: free, type: string, maxLength: 2000 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [execution.closed]
+    idempotency: "Закрите виконання — already: true."
+    errors: [execution_not_found]
+    tool:
+      title: Close workflow run
+      idempotent: true
+      description: >-
+        End a run: completed, failed or canceled, with a short summary. A run whose last step finished is closed by the
+        server already.
+  execution.list:
+    kind: query
+    slice: 1
+    scenarios: [R17]
+    input:
+      type: object
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        state: { type: string, enum: [open, closed, all], default: open }
+        limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "read-models.yaml#/read_models/executions/row" } }
+      additionalProperties: false
+    tool:
+      title: List workflow runs
+      idempotent: true
+      description: >-
+        Runs of processes — open ones by default — with progress: steps done of all, steps waiting for a person.
+  execution.read:
+    kind: query
+    slice: 1
+    scenarios: [R17]
+    input:
+      type: object
+      required: [execution_id]
+      properties:
+        execution_id: { $ref: "types.yaml#/$defs/Id" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [execution, steps]
+      properties:
+        execution: { $ref: "read-models.yaml#/read_models/executions/row" }
+        steps: { type: array, items: { $ref: "read-models.yaml#/read_models/executions/step" } }
+        params: { type: object }
+      additionalProperties: false
+    errors: [execution_not_found]
+    tool:
+      title: Read workflow run
+      idempotent: true
+      description: >-
+        A run with every step: state (submitted = ready, working, input_required, completed, failed, skipped, pending),
+        attempts with who ran them and until when the lease holds, outputs and approvals.
+  step.start:
+    kind: command
+    slice: 1
+    scenarios: [R18]
+    description: Взяти готовий крок в оренду; зайнятий — step_busy; без GO крок з requires_approval не стартує; прострочену спробу закриває system-подія.
+    input:
+      type: object
+      required: [execution_id, step_key]
+      properties:
+        execution_id: { $ref: "types.yaml#/$defs/Id" }
+        step_key: { text: id, $ref: "types.yaml#/$defs/StepKey" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [attempt_id, attempt, lease_until, event_id, seq]
+      properties:
+        attempt_id: { $ref: "types.yaml#/$defs/Id" }
+        attempt: { type: integer, minimum: 1 }
+        lease_until: { $ref: "types.yaml#/$defs/Timestamp" }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    emits: [step.started, step.finished]
+    errors: [execution_not_found, execution_closed, step_not_found, step_not_ready, step_busy, approval_required, person_required]
+    tool:
+      title: Take workflow step
+      description: >-
+        Take a ready step of a run for yourself: you get an attempt with a lease. Renew the lease with step_checkpoint
+        on long work and end with step_finish. Refused when another executor holds the step or it is not ready.
+  step.checkpoint:
+    kind: command
+    slice: 1
+    scenarios: [R18]
+    input:
+      type: object
+      required: [attempt_id]
+      properties:
+        attempt_id: { $ref: "types.yaml#/$defs/Id" }
+        output: { text: id, type: object }
+        note: { text: free, type: string, maxLength: 1000 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [lease_until, event_id, seq]
+      properties:
+        lease_until: { $ref: "types.yaml#/$defs/Timestamp" }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    emits: [step.checkpointed]
+    errors: [attempt_not_found, attempt_finished, lease_expired]
+    tool:
+      title: Renew step lease
+      description: >-
+        Keep a long step alive: renews the lease of your attempt and can save a partial output.
+  step.finish:
+    kind: command
+    slice: 1
+    scenarios: [R18]
+    description: Фінальний стан спроби; останній крок — виконання закривається (execution.closed, completed).
+    input:
+      type: object
+      required: [attempt_id, state]
+      properties:
+        attempt_id: { $ref: "types.yaml#/$defs/Id" }
+        state: { type: string, enum: [completed, failed, canceled, rejected] }
+        output: { text: id, type: object }
+        error: { text: free, type: string, maxLength: 2000 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [event_id, seq, ready]
+      properties:
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+        ready: { type: array, items: { $ref: "types.yaml#/$defs/StepKey" } }
+        execution_closed: { type: boolean }
+      additionalProperties: false
+    emits: [step.finished, execution.closed]
+    errors: [attempt_not_found, attempt_finished]
+    tool:
+      title: Finish workflow step
+      params:
+        state: "completed, failed, canceled, or rejected (you refuse by the rules, e.g. a GO is missing)."
+        output: "The step output; later conditions read it as steps.<key>.output."
+      description: >-
+        End your attempt of a step with its outcome and output; returns the steps that became ready. Finishing the last
+        step closes the run.
+  step.open_items:
+    kind: query
+    slice: 1
+    scenarios: [R18]
+    description: >-
+      Готові кроки моїх відкритих виконань, які може взяти виконавець (людські кроки й очікування GO — ні). Класи даних:
+      кроки, чий проєкт вищий за клас гранту чи названого виконавця (з урахуванням класу кроку), не видно.
+    input:
+      type: object
+      properties:
+        project: { $ref: "types.yaml#/$defs/ProjectRef" }
+        executor_actor_id: { $ref: "types.yaml#/$defs/Id", description: "Показати лише кроки, які цей виконавець може взяти за класом даних." }
+        limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [execution_id, project, workflow, version, step_key, title, kind]
+            properties:
+              execution_id: { $ref: "types.yaml#/$defs/Id" }
+              project: { $ref: "types.yaml#/$defs/ProjectName" }
+              workflow: { $ref: "types.yaml#/$defs/WorkflowKey" }
+              version: { type: integer }
+              step_key: { $ref: "types.yaml#/$defs/StepKey" }
+              title: { type: string }
+              kind: { $ref: "types.yaml#/$defs/StepKind" }
+              executor_class: { $ref: "types.yaml#/$defs/ExecutorClass" }
+              lease_expired: { type: boolean }
+            additionalProperties: false
+      additionalProperties: false
+    tool:
+      title: Workflow steps to take
+      idempotent: true
+      description: >-
+        Steps of your open runs that are ready to be taken (not human steps, not waiting for a GO) — the work queue an
+        executor pulls from.
+  step.pack:
+    kind: query
+    slice: 1
+    scenarios: [R18]
+    description: Пакет кроку — визначення, параметри, виходи завершених кроків, контекст за селекторами (steps.*, task:*, recall:<запит> у проєкті запуску; понад budget_tokens обрізаються твердження recall:).
+    input:
+      type: object
+      required: [execution_id, step_key]
+      properties:
+        execution_id: { $ref: "types.yaml#/$defs/Id" }
+        step_key: { $ref: "types.yaml#/$defs/StepKey" }
+      additionalProperties: false
+    output:
+      type: object
+      required: [step, state, params, inputs, context]
+      properties:
+        step: { $ref: "types.yaml#/$defs/StepDefinition" }
+        state: { type: string }
+        params: { type: object }
+        inputs: { type: object, description: "Виходи завершених кроків за ключем." }
+        context: { type: array, items: { type: object } }
+        budget_tokens: { $ref: "types.yaml#/$defs/TokenBudget" }
+      additionalProperties: false
+    errors: [execution_not_found, step_not_found]
+    tool:
+      title: Step package
+      idempotent: true
+      description: >-
+        Everything an executor needs for one step: its definition (allowed tools, output format, acceptance), the run
+        parameters, outputs of finished steps and the context its selectors name — so it does not have to search.
+  step.delegate:
+    kind: command
+    slice: 1
+    scenarios: [R11, R18]
+    description: >-
+      Похідний грант на один крок одного запуску: виконавець — агент чи сервіс тієї самої людини;
+      дієслова — з визначення кроку; режим запису й клас даних — з кроку; живе, доки живий ланцюжок і відкритий запуск.
+    input:
+      type: object
+      required: [execution_id, step_key]
+      properties:
+        execution_id: { $ref: "types.yaml#/$defs/Id" }
+        step_key: { text: id, $ref: "types.yaml#/$defs/StepKey" }
+        actor_id: { $ref: "types.yaml#/$defs/Id" }
+        agent: { text: id, $ref: "types.yaml#/$defs/AgentRole" }
+        ttl_s: { type: integer, minimum: 60, maximum: 86400 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [token, token_id, executor_actor_id, expires_at, verbs, write_mode, depth, event_id, seq]
+      properties:
+        token: { type: string, description: "Сирий токен — показується один раз." }
+        token_id: { $ref: "types.yaml#/$defs/Id" }
+        executor_actor_id: { $ref: "types.yaml#/$defs/Id" }
+        expires_at: { $ref: "types.yaml#/$defs/Timestamp" }
+        verbs: { type: array, items: { type: string } }
+        write_mode: { type: string }
+        depth: { type: integer }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+      additionalProperties: false
+    emits: [step.delegated, actor.registered]
+    errors: [execution_not_found, execution_closed, step_not_found, step_not_delegable, person_required, delegation_refused, outside_grant, data_class_exceeded]
+    tool:
+      title: Delegate workflow step
+      destructive: false
+      params:
+        agent: "Role of the executor (e.g. harvester); its agent actor is registered on demand. Or pass actor_id."
+        ttl_s: "Lifetime in seconds, at most a day and never beyond your own token."
+      description: >-
+        Give one step of a run to an executor (a sub-agent or a runner): returns a short-lived token that can only take
+        and finish this step with the verbs the step allows, in this project. Hand the token to the executor; it dies
+        when the run closes or your token is revoked.
+  approval.grant:
+    kind: command
+    slice: 1
+    scenarios: [R17, R18]
+    description: GO людини на крок; агент чи сервіс GO не дає (approval_requires_human).
+    input:
+      type: object
+      required: [execution_id, step_key]
+      properties:
+        execution_id: { $ref: "types.yaml#/$defs/Id" }
+        step_key: { text: id, $ref: "types.yaml#/$defs/StepKey" }
+        items: { type: array, maxItems: 100, items: { text: id, type: string, minLength: 1, maxLength: 200 } }
+        note: { text: free, type: string, maxLength: 1000 }
+      additionalProperties: false
+    output:
+      type: object
+      required: [approval_id, event_id, seq, ready]
+      properties:
+        approval_id: { $ref: "types.yaml#/$defs/Id" }
+        event_id: { $ref: "types.yaml#/$defs/Id" }
+        seq: { $ref: "types.yaml#/$defs/Seq" }
+        ready: { type: array, items: { $ref: "types.yaml#/$defs/StepKey" } }
+      additionalProperties: false
+    emits: [approval.granted]
+    errors: [execution_not_found, execution_closed, step_not_found, approval_requires_human, approval_not_needed]
+    tool:
+      title: Approve workflow step
+      params:
+        items: "A partial GO: only these elements (e.g. note numbers) are approved."
+      description: >-
+        Record the user's GO for a step of a run — only when the user said so in this conversation; an agent never
+        approves on its own. A human step is done by its GO; a step that requires approval may start after it.
+  approval.revoke:
+    kind: command
+    slice: 1
+    scenarios: [R17]
+    input:
+      type: object
+      required: [approval_id]
+      properties:
+        approval_id: { $ref: "types.yaml#/$defs/Id" }
+        reason: { text: free, type: string, maxLength: 500 }
+      additionalProperties: false
+    output: { $ref: "#/$defs/EventAck" }
+    emits: [approval.revoked]
+    idempotency: "Відкликане — already: true."
+    errors: [approval_not_found, approval_used]
+    tool:
+      title: Revoke approval
+      idempotent: true
+      description: >-
+        Take back a GO that no step has used yet.
+
+$defs:
+  RulesBlock:
+    type: object
+    description: "Мінімум правил для будь-якого клієнта: у кожній відповіді project_resume і session.open; version — як у system.guide."
+    required: [version, lines, guide]
+    properties:
+      version: { type: string }
+      lines: { type: array, items: { type: string } }
+      guide: { type: string }
+    additionalProperties: false
+  VocabularyBlock:
+    type: object
+    description: Набір словників проєкту і його живі типи (обов'язковий у пакеті старту).
+    required: [sets, types, hint]
+    properties:
+      sets: { type: array, items: { type: string } }
+      types:
+        type: array
+        items:
+          type: object
+          required: [type, short, family, title, description]
+          properties:
+            type: { type: string }
+            short: { type: string }
+            family: { type: string }
+            title: { type: string }
+            description: { type: string }
+          additionalProperties: false
+      hint: { type: string }
+    additionalProperties: false
+  SessionRef:
+    type: object
+    description: Сесія власного API — projection.context.
+    required: [session_id, project]
+    properties:
+      session_id: { $ref: "types.yaml#/$defs/Id" }
+      project: { $ref: "types.yaml#/$defs/ProjectName" }
+      opened_at: { $ref: "types.yaml#/$defs/Timestamp" }
+      closed_at: { $ref: "types.yaml#/$defs/Timestamp" }
+      reused: { type: boolean, description: "Підхоплено відкриту сесію цього клієнта — нової події немає." }
+    additionalProperties: false
+  WriteAck:
+    type: object
+    description: EventAck + куди ліг запис.
+    required: [event_id, seq]
+    properties:
+      event_id: { $ref: "types.yaml#/$defs/Id" }
+      seq: { $ref: "types.yaml#/$defs/Seq" }
+      already: { type: boolean }
+      unchanged: { type: boolean }
+      deduped: { type: boolean }
+      session_id: { $ref: "types.yaml#/$defs/Id" }
+      session_inherited: { type: boolean }
+      session_miss: { type: string, enum: [closed, not_found, other_project] }
+      warnings: { type: array, items: { type: string } }
+    additionalProperties: false
+  DeletionAck:
+    type: object
+    required: [deletion_id, ref, state, event_id, seq]
+    properties:
+      deletion_id: { $ref: "types.yaml#/$defs/Id" }
+      ref: { type: string }
+      state: { enum: [open, approved, done, rejected] }
+      event_id: { $ref: "types.yaml#/$defs/Id" }
+      seq: { $ref: "types.yaml#/$defs/Seq" }
+    additionalProperties: false
+  EventAck:
+    type: object
+    required: [event_id, seq]
+    properties:
+      event_id: { $ref: "types.yaml#/$defs/Id" }
+      seq: { $ref: "types.yaml#/$defs/Seq" }
+      already: { type: boolean, description: "Стан уже був таким — нової події не створено." }
+      unchanged: { type: boolean }
+      deduped: { type: boolean }
+    additionalProperties: false
+  Checkpoint:
+    type: object
+    description: Позиція для інкрементальних читачів після закриття контексту.
+    required: [server_time, project, last_seq]
+    properties:
+      server_time: { $ref: "types.yaml#/$defs/Timestamp" }
+      project: { $ref: "types.yaml#/$defs/ProjectName" }
+      last_seq: { $ref: "types.yaml#/$defs/Seq" }
+      context_event_ids: { type: array, items: { $ref: "types.yaml#/$defs/Id" } }
+    additionalProperties: false

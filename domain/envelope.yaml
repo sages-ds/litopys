@@ -1,0 +1,62 @@
+# Конверт події. Однаковий для всіх типів; версіонується окремо від payload.
+# Інваріанти: recorded_at ніколи не правиться; actor_id, run_id, causation_id обов'язкові — без них запис не приймається (інваріант 3).
+envelope_version: 1
+scenarios: [R1, R3, R5, R6, R11, R16]
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  required: [event_id, seq, envelope_version, schema_version, type, recorded_at, effective_at, actor_id, run_id, causation_id, correlation_id, tenant_id, entity_type, entity_id, payload]
+  properties:
+    event_id:
+      $ref: "types.yaml#/$defs/Id"
+      description: Ідемпотентність споживачів (інваріант 7).
+    seq:
+      $ref: "types.yaml#/$defs/Seq"
+      description: Порядок і курсор. Присвоюється сервером при коміті.
+    envelope_version:
+      type: integer
+      const: 1
+    schema_version:
+      type: integer
+      minimum: 1
+      description: Версія payload-схеми ДЛЯ ЦЬОГО type. Еволюціонує незалежно від конверта.
+    type:
+      type: string
+      pattern: "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+      description: Тип події з events.yaml.
+    recorded_at:
+      $ref: "types.yaml#/$defs/Timestamp"
+      description: Час транзакції — годинник сервера. НЕ приймається від клієнта, НЕ правиться ніколи.
+    effective_at:
+      $ref: "types.yaml#/$defs/Timestamp"
+      description: Час дійсності — відколи це правда про світ. Може бути в минулому (ретроспективна правка, імпорт) або майбутньому. Дефолт = recorded_at.
+    actor_id:
+      $ref: "types.yaml#/$defs/Id"
+      description: Хто є автором події. Актор має бути зареєстрований (actor.registered) до першого запису.
+    run_id:
+      $ref: "types.yaml#/$defs/Id"
+      description: Прогін (процес виконання), в якому подія сталась. Суб-агент пише лише з run_id, що має parent_run_id (R11).
+    causation_id:
+      $ref: "types.yaml#/$defs/Id"
+      description: event_id події-причини. Для кореневих подій прогону — event_id run.started.
+    correlation_id:
+      $ref: "types.yaml#/$defs/Id"
+      description: Ланцюг робіт наскрізь через прогони (людина → оркестратор → суб-агенти).
+    tenant_id:
+      $ref: "types.yaml#/$defs/Id"
+      description: На старті — один tenant "default". Потрібен спільному простору (зріз 3).
+    entity_type:
+      $ref: "types.yaml#/$defs/EntityType"
+    entity_id:
+      $ref: "types.yaml#/$defs/Id"
+      description: Сутність, якої стосується подія. Для *.registered/declared/asserted — новостворений id.
+    context_id:
+      $ref: "types.yaml#/$defs/Id"
+      description: Необов'язково — контекст (сесія), в якому подія записана. Потрібен R1 (змістовність сесії) і фасаду (session_id).
+    payload:
+      type: object
+      description: Схема — у events.yaml за type + schema_version.
+  additionalProperties: false
+notes:
+  - "Два різні питання R6: recorded_at ≤ T — «у що вірили на T»; effective_at ≤ T — «що було правдою на T, як відомо зараз». Запит без уточнення = обидві осі «зараз» (інваріант 8)."
+  - "execution.event (телеметрія) НЕ використовує цей конверт і НЕ пише в журнал тверджень — окремий потік з власною ретенцією."

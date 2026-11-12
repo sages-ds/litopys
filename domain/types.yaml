@@ -1,0 +1,398 @@
+# Спільні типи. JSON Schema 2020-12, $defs; інші файли посилаються як "types.yaml#/$defs/<Name>".
+$schema: https://json-schema.org/draft/2020-12/schema
+$defs:
+  Id:
+    type: string
+    format: uuid
+    description: UUID v7 (упорядкований за часом). Усі ідентифікатори сутностей і подій.
+  Seq:
+    type: integer
+    minimum: 1
+    description: Глобальний монотонний лічильник журналу. Видимий лише після коміту; порядок і курсор.
+  Timestamp:
+    type: string
+    format: date-time
+    description: RFC 3339 з зоною. Сервер зберігає в UTC.
+  ProjectName:
+    type: string
+    minLength: 1
+    maxLength: 200
+    pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    description: Slug проєкту — стабільний ключ (теки, хуки, плагін). Людська назва — ProjectTitle.
+  ProjectTitle:
+    type: string
+    minLength: 1
+    maxLength: 200
+    description: Людська назва проєкту — будь-які символи; за замовчуванням дорівнює slug.
+  ProjectRef:
+    type: string
+    minLength: 1
+    maxLength: 200
+    description: "Проєкт у вході власного API: slug або людська назва. Точний slug → інакше унікальна назва без урахування регістру; кілька збігів — project_ambiguous."
+  TaskAssignee:
+    type: object
+    description: >-
+      Хто виконує задачу: рівно одне — конкретний актор, роль (виконає той, хто візьме) або агент
+      як сутність шару. Проєкт, у межах якого виконується, — окреме поле owner_project.
+    oneOf:
+      - { required: [actor_id] }
+      - { required: [role] }
+      - { required: [agent] }
+    properties:
+      actor_id: { $ref: "#/$defs/Id" }
+      role: { $ref: "#/$defs/TaskRole" }
+      agent: { text: id, $ref: "#/$defs/AgentRole" }
+    additionalProperties: false
+  AgentRole:
+    type: string
+    pattern: "^[a-z][a-z0-9-]{0,62}$"
+    description: "Роль суб-агента, що пише від імені людини (reviewer, planner…). НЕ назва моделі чи вендора — така назва відхиляється. Основний асистент у діалозі з людиною не передає."
+  ShortText:
+    type: string
+    minLength: 1
+    maxLength: 500
+  Body:
+    type: string
+    maxLength: 32768
+    description: Вміст твердження. Цільовий розмір ≤ 8 КБ; більше сервер ріже на частини зі спільним external_ref.
+  Concept:
+    type: string
+    minLength: 1
+    maxLength: 100
+  Refs:
+    type: array
+    maxItems: 20
+    items: { text: id, type: string, minLength: 1, maxLength: 300 }
+    description: >-
+      Явні посилання. Внутрішнє — R-N, [<проєкт>/]T-N, W-N, X-N або id сутності: сервер перевіряє його
+      (немає — ref_not_found) і ставить зв'язок mentions. Будь-яке інше (jira:ABC-1, pr:<url>) лишається рядком.
+  ActorKind:
+    type: string
+    enum: [human, agent, service, automation]
+    description: human — людина; agent — суб-агент/асистент, що діє від імені людини; service — зареєстрований сервіс (модуль); automation — хук, cron.
+  ActorRef:
+    type: object
+    required: [actor_id]
+    properties:
+      actor_id: { $ref: "#/$defs/Id" }
+      display_name: { type: string }
+      kind: { $ref: "#/$defs/ActorKind" }
+    additionalProperties: false
+  ClientInfo:
+    type: object
+    description: Хто технічно виконує прогін. Метадані актора, НЕ умова читання (R12).
+    properties:
+      provider: { text: id, type: string, description: "anthropic | openai | google | local | ..." }
+      runtime: { text: id, type: string, description: "claude-code | codex-cli | gemini-cli | sdk | ..." }
+      client_type: { text: id, type: string, description: "cli | chat | cowork | hook | worker" }
+      model: { text: id, type: string }
+      version: { text: id, type: string }
+      grant: { $ref: "#/$defs/Id", description: "Ставить сервер (власний API): грант або токен клієнта — ключ «сесія належить клієнту»." }
+      agent: { text: id, $ref: "#/$defs/AgentRole", description: "Ставить сервер з поля agent." }
+      surface: { text: id, type: string, description: "Ставить сервер: api/v1 для сесій власного API." }
+      app: { text: id, type: string, description: "Ставить сервер: застосунок клієнта з MCP clientInfo чи заголовка клієнта (напр. Anthropic/ClaudeAI/1.0.0, openai-mcp/1.0.0) — декларативно, нічого не вирішує." }
+      label: { text: id, type: string, maxLength: 100, description: "Як клієнт сам себе називає (claude.ai-web, chatgpt-mobile); поле surface клієнта переноситься сюди." }
+    additionalProperties: false
+  StatementType:
+    type: string
+    pattern: '^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)?$'
+    maxLength: 63
+    description: "Тип словників використання: тип general без префікса (decision, proposal, finding, question, event, document, note, outcome) або <словник>.<тип> (dba.migration); коротке ім'я, однозначне в наборі проєкту, і старі імена (bugfix, discovery, …) дієслово розв'язує в повне. Перелік типів проєкту — блок vocabulary пакета старту; закритого enum більше немає (0038)."
+  Family:
+    type: string
+    enum: [decision, proposal, finding, question, event, document, note, outcome]
+    description: "Родина типу запису: закритий системний список ядра. Кожен тип словника належить одній родині; наскрізні запити («усі рішення», «відкриті питання») — за родиною. outcome пише лише session.close."
+  WritableStatementType:
+    type: string
+    pattern: '^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)?$'
+    maxLength: 63
+    description: "StatementType для запису: outcome відмовляється (type_reserved) — підсумки пише лише session.close."
+  OutcomeState:
+    type: string
+    enum: [done, partial, blocked, failed]
+    description: "Стан предмета після сесії."
+  Outcome:
+    type: object
+    description: "Підсумок предмета: про що (statement / task за id або тема-мітка), стан, наступний крок, докази."
+    required: [ref, state]
+    properties:
+      ref: { type: string, maxLength: 300, description: "Як передав клієнт: R-498, T-12, <project>/T-12, topic:<назва>, uuid." }
+      subject_type: { type: string, enum: [statement, task] }
+      subject_id: { $ref: "#/$defs/Id" }
+      topic: { type: string, maxLength: 100 }
+      state: { $ref: "#/$defs/OutcomeState" }
+      next: { type: string, maxLength: 300 }
+      evidence: { type: array, items: { type: string, maxLength: 300 }, maxItems: 5 }
+    additionalProperties: false
+  Authority:
+    type: string
+    enum: [owner, agent]
+    description: "owner — записано від імені людини без суб-агента; agent — у прогоні суб-агента (client.agent)."
+  StatementStatus:
+    type: string
+    enum: [current, amended, superseded, retracted, folded]
+    description: Обчислюється проєктором, ніколи не записується напряму.
+  EvidenceKind:
+    type: string
+    enum: [observed, confirmed, inferred, reported]
+  LinkRelation:
+    type: string
+    enum: [related, contradicts, duplicates, confirms, about, derived_from, depends_on, predecessor_of, parallel_line_of, member_of, handoff, mentions, resolves]
+    description: >-
+      Активні типи з domain/link-types.yaml (там — кінці, зворотні назви, цикли, життєвий цикл; валідатор звіряє цей
+      перелік). supersedes — НЕ тут, це окрема подія.
+  ProjectStatus:
+    type: string
+    enum: [active, paused, archived]
+  TaskPriority:
+    type: string
+    enum: [high, medium, low]
+  TaskOutcome:
+    type: string
+    enum: [done, dropped]
+  TaskKind:
+    type: string
+    enum: [task, bug, requirement, question, risk, test]
+    description: Модель todo v2 (рішення 2026-09-30).
+  TaskStatus:
+    type: string
+    enum: [backlog, open, analysis, in_progress, review, testing, waiting, blocked, done, dropped]
+    description: done / dropped — закриті (task.close); решта — відкриті. Порядок «що далі» для списків — in_progress, review, testing, analysis, open, blocked, waiting, backlog.
+  TaskOpenStatus:
+    type: string
+    enum: [backlog, open, analysis, in_progress, review, testing, waiting, blocked]
+  TaskRole:
+    type: string
+    enum: [dev, dba, ops, pm, ba, qa]
+  Severity:
+    type: string
+    enum: [critical, major, minor, trivial]
+    description: Серйозність дефекту (kind=bug), окремо від priority.
+  TaskNum:
+    type: integer
+    minimum: 1
+    description: Постійний номер задачі в проєкті; присвоює task.declare (max+1), ніколи не перевикористовується.
+  FactKind:
+    type: string
+    enum: [architecture, credential, access, note, tech_stack, binding, instruction, style, agent, skill, retention, vocabulary]
+    description: >-
+      credential — лише secret_ref, значення ніколи не зберігається. retention — мітка зберігання: value — JSON
+      {applies_to, after_days | retain_until, action}; без неї нічого не видаляється автоматично. binding — тека машини, прив'язана до проєкту
+      (плагін Claude Code); instruction / style / agent / skill — факти шару. vocabulary — словник у шарі: key — ключ вбудованого словника, value — on | off.
+  EntityType:
+    type: string
+    enum: [actor, run, context, statement, summary, link, project, task, fact, consumer, referent, subject, edge, policy, publication, workflow, deletion, attachment]
+  EntityRef:
+    type: object
+    required: [entity_type, entity_id]
+    properties:
+      entity_type: { $ref: "#/$defs/EntityType" }
+      entity_id: { $ref: "#/$defs/Id" }
+    additionalProperties: false
+  TokenBudget:
+    type: integer
+    minimum: 500
+    maximum: 32000
+  Provenance:
+    type: object
+    description: Походження, що повертає КОЖНЕ читання (інваріант 5).
+    required: [event_id, seq, recorded_at, effective_at, actor]
+    properties:
+      event_id: { $ref: "#/$defs/Id" }
+      seq: { $ref: "#/$defs/Seq" }
+      recorded_at: { $ref: "#/$defs/Timestamp" }
+      effective_at: { $ref: "#/$defs/Timestamp" }
+      actor: { $ref: "#/$defs/ActorRef" }
+      run_id: { $ref: "#/$defs/Id" }
+      causation_id: { $ref: "#/$defs/Id" }
+      context_id: { $ref: "#/$defs/Id" }
+    additionalProperties: false
+  Hidden:
+    type: object
+    description: "Приховане політикою — АГРЕГОВАНО (варіант b): правило, тип і кількість, без id і назв. Деталі — лише policy.explain власнику даних або адміну (R4, R15)."
+    required: [hidden_by, entity_type, count, reason]
+    properties:
+      hidden_by: { type: string, description: "policy.<scope>.<name> | grant.project_allowlist" }
+      entity_type: { type: string }
+      count: { type: integer, minimum: 1 }
+      reason: { type: string }
+    additionalProperties: false
+
+  Label:
+    type: string
+    pattern: "^[a-z0-9][a-z0-9._-]{0,39}$"
+
+  PolicyRule:
+    type: object
+    description: "Словник правил зрізу 1. Селектори vendors/profiles: порожній або відсутній — будь-який."
+    required: [type]
+    properties:
+      type: { enum: [project_allowlist, project_label_deny, field_redaction, client_allowlist] }
+      projects: { type: array, maxItems: 200, items: { text: id, $ref: "#/$defs/ProjectName" } }
+      labels: { type: array, maxItems: 20, items: { text: id, $ref: "#/$defs/Label" } }
+      fields: { type: array, items: { enum: [fact.secret_ref, fact.value] } }
+      kinds: { type: array, items: { text: id, type: string } }
+      client_ids: { type: array, maxItems: 200, items: { text: id, type: string, maxLength: 200 } }
+      vendors: { type: array, items: { enum: [anthropic, openai, google, local, unknown] } }
+      profiles: { type: array, items: { enum: [full, core, chat, readonly] } }
+    additionalProperties: false
+
+  # ---------- Робочі процеси (зріз 2) ----------
+  WorkflowKey:
+    type: string
+    pattern: "^[a-z][a-z0-9-]{0,62}$"
+    description: Стабільний ключ процесу в проєкті (fork-sync, vault-harvest); назва для людей — title.
+  StepKey:
+    type: string
+    pattern: "^[a-z][a-z0-9_]{0,40}$"
+    description: Ключ кроку в межах версії; вихід адресується наступним кроком як steps.<key>.output.
+  StepKind:
+    type: string
+    enum: [script, model, human, external, subworkflow]
+    description: >-
+      script — детерміновано, без моделі; model — модель; human — GO чи ручна дія; external — зовнішня задача
+      (Semaphore, CI): запустити, чекати, прочитати; subworkflow — вкладене виконання.
+  ExecutorClass:
+    type: string
+    enum: [cheap, main]
+    description: Для model — рівень моделі; реальний виконавець обирається за реєстром (Г5).
+  WhoMayRun:
+    type: string
+    enum: [assistant, executor, human_only]
+    description: Хто має право виконати крок (Ф5) — межа, а не порада.
+  WriteMode:
+    type: string
+    enum: [direct, candidate]
+    description: candidate — записи виконавця йдуть у чергу перевірки, а не одразу чинні (Д8).
+  DataClass:
+    type: string
+    enum: [public, internal, local]
+    description: >-
+      public — можна будь-кому, зокрема з навчанням; internal — хмара без навчання й зберігання; local — лише
+      локальні виконавці.
+  ExecutorProfile:
+    type: object
+    description: >-
+      Профіль виконавця — запис реєстру виконавців: на чому працює агент чи сервіс і
+      які дані йому можна давати. Ключ — лише посилання на сховище секретів (BYOK), ніколи значення.
+    required: [provider, model, key_kind, max_data_class]
+    properties:
+      provider: { text: id, type: string, minLength: 1, maxLength: 60, description: "openai, google, mistral, groq, ollama…" }
+      model: { text: id, type: string, minLength: 1, maxLength: 120 }
+      key_kind: { type: string, enum: [local, free, paid, plan_credits], description: "local — модель на власному залізі, без ключа провайдера." }
+      secret_ref: { text: id, type: string, maxLength: 512, description: "Шлях ключа в OpenBao (BYOK); для local відсутній." }
+      limits:
+        type: object
+        properties:
+          rpm: { type: integer, minimum: 0 }
+          rpd: { type: integer, minimum: 0 }
+          tpm: { type: integer, minimum: 0 }
+          tpd: { type: integer, minimum: 0 }
+        additionalProperties: false
+      data_policy:
+        type: object
+        description: Що провайдер робить із даними за його умовами на дату terms_checked_at.
+        properties:
+          training: { type: boolean }
+          retention: { type: boolean }
+          human_review: { type: boolean }
+        additionalProperties: false
+      max_data_class: { $ref: "#/$defs/DataClass", description: "Найвищий клас даних, який можна дати виконавцю. local — лише з key_kind local; training — public, доки людина свідомо не розширила доступ (access)." }
+      terms_checked_at: { type: string, format: date }
+      terms_url: { text: id, type: string, maxLength: 512 }
+      preset: { text: id, type: string, maxLength: 60, description: "Ключ пресету вендора (domain/providers.yaml)." }
+      adapter: { type: string, enum: [openai, anthropic], description: "Протокол моделі; без поля — openai." }
+      base_url: { text: id, type: string, maxLength: 512, description: "Адреса API з підставленими полями пресету." }
+      fields: { type: object, additionalProperties: { text: id, type: string, maxLength: 120 }, description: "Додаткові поля пресету (account_id, host)." }
+      disabled: { type: boolean, description: "Вимкнено: раннер його не бере." }
+      key: { $ref: "#/$defs/ExecutorKeyRef" }
+      access: { $ref: "#/$defs/ExecutorAccess" }
+    additionalProperties: false
+  StatementFields:
+    type: object
+    description: >-
+      Структуровані поля запису за схемою його типу (vocabularies.yaml fields): amount, currency, payee,
+      paid_at, phone… Тип без полів їх не приймає; невідоме поле — відмова.
+    maxProperties: 20
+    additionalProperties: { oneOf: [ { text: free, type: string, maxLength: 500 }, { type: number } ] }
+  ExecutorKeyRef:
+    type: object
+    description: Ключ, збережений апкою — лише відбиток і час; сам ключ зашифровано поза журналом.
+    required: [fingerprint, set_at]
+    properties:
+      fingerprint: { text: id, type: string, pattern: "^[0-9a-f]{8}$" }
+      set_at: { $ref: "#/$defs/Timestamp" }
+    additionalProperties: false
+  ExecutorAccess:
+    type: object
+    description: >-
+      Розширення доступу понад клас за пресетом — свідомий вибір людини (рішення власника 2026-11-01):
+      projects — обрані проєкти незалежно від їхнього класу; all — усі проєкти. consent — умови вендора, які людина
+      бачила; ставить лише людина, агент — ні.
+    required: [mode]
+    properties:
+      mode: { type: string, enum: [preset, projects, all] }
+      projects: { type: array, items: { text: id, $ref: "#/$defs/ProjectName" }, maxItems: 200 }
+      consent: { text: free, type: string, maxLength: 2000 }
+      granted_at: { $ref: "#/$defs/Timestamp" }
+    additionalProperties: false
+  StepState:
+    type: string
+    enum: [submitted, working, input_required, auth_required, completed, failed, canceled, rejected]
+    description: Словник станів A2A 1.0; очікування зовнішнього — working з wait.
+  ExecutionState:
+    type: string
+    enum: [submitted, working, input_required, auth_required, completed, failed, canceled]
+  StepDefinition:
+    type: object
+    required: [key, title, kind]
+    properties:
+      key: { text: id, $ref: "#/$defs/StepKey" }
+      title: { text: line, $ref: "#/$defs/ShortText" }
+      kind: { $ref: "#/$defs/StepKind" }
+      executor_class: { $ref: "#/$defs/ExecutorClass" }
+      delegable: { type: boolean, default: true, description: "false — «не делегується нижче» (П4 крок 2)." }
+      who_may_run: { $ref: "#/$defs/WhoMayRun" }
+      input: { text: id, type: object, description: "JSON Schema входу кроку." }
+      output: { text: id, type: object, description: "JSON Schema виходу кроку." }
+      context_pack:
+        type: object
+        description: Що сервер підтягує виконавцю (Г3).
+        properties:
+          selectors: { type: array, maxItems: 20, items: { text: id, type: string, maxLength: 300 }, description: "Селектори: task:<проєкт>#N, recall:<запит>, steps.<key>.output." }
+          budget_tokens: { $ref: "#/$defs/TokenBudget" }
+        additionalProperties: false
+      verbs: { type: array, maxItems: 30, items: { text: id, type: string, pattern: "^[a-z_]+[.][a-z_]+$" }, description: "Дозволені дієслова — межа похідного гранту (Д3)." }
+      write_mode: { $ref: "#/$defs/WriteMode" }
+      max_data_class: { $ref: "#/$defs/DataClass" }
+      requires_approval: { type: boolean, default: false }
+      condition: { text: id, type: string, maxLength: 1000, description: "Вираз CEL над params і steps.<key>.output; хибний — крок пропускається." }
+      next: { type: array, maxItems: 10, items: { text: id, $ref: "#/$defs/StepKey" }, description: "Наступні кроки; відсутнє — наступний за порядком; кілька — паралель." }
+      idempotency: { text: id, type: string, maxLength: 300, description: "Шаблон ключа ідемпотентності або none." }
+      timeout_s: { type: integer, minimum: 10, maximum: 604800, description: "Строк оренди спроби." }
+      heartbeat_s: { type: integer, minimum: 5, maximum: 3600 }
+      retry: { type: object, properties: { max: { type: integer, minimum: 0, maximum: 10 }, backoff_s: { type: integer, minimum: 0, maximum: 86400 } }, additionalProperties: false }
+      external: { type: object, description: "Для kind external: система і що запускати (напр. semaphore + шаблон).", properties: { system: { text: id, type: string, maxLength: 60 }, ref: { text: id, type: string, maxLength: 300 } }, additionalProperties: false }
+      subworkflow: { text: id, $ref: "#/$defs/WorkflowKey", description: "Для kind subworkflow." }
+      acceptance: { text: free, type: string, maxLength: 4000 }
+    additionalProperties: false
+  WorkflowDefinition:
+    type: object
+    required: [steps]
+    description: Повне визначення однієї версії (незмінне після публікації).
+    properties:
+      params: { text: id, type: object, description: "JSON Schema параметрів запуску." }
+      triggers:
+        type: array
+        maxItems: 10
+        items:
+          type: object
+          required: [kind]
+          properties:
+            kind: { enum: [manual, schedule, journal, webhook] }
+            spec: { text: id, type: string, maxLength: 500, description: "cron для schedule, тип події для journal, ім'я для webhook." }
+          additionalProperties: false
+      touches: { type: array, maxItems: 30, items: { text: id, type: string, maxLength: 200 }, description: "Системи, яких торкається (аналіз впливу, Ф12)." }
+      verified_at: { type: string, format: date, description: "Коли визначення востаннє звірено з реальністю (Ф12)." }
+      steps: { type: array, minItems: 1, maxItems: 50, items: { $ref: "#/$defs/StepDefinition" } }
+    additionalProperties: false

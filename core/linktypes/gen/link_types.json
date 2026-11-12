@@ -1,0 +1,221 @@
+{
+  "spec_version": 1,
+  "link_types": {
+    "depends_on": {
+      "layer": "work",
+      "inverse": "blocks",
+      "ends": [
+        {
+          "from": "project",
+          "to": "project"
+        },
+        {
+          "from": "task",
+          "to": "task"
+        }
+      ],
+      "symmetric": false,
+      "transitive": true,
+      "acyclic": true,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "satisfied"
+    },
+    "handoff": {
+      "layer": "work",
+      "inverse": "handed_off_from",
+      "ends": [
+        {
+          "from": "task",
+          "to": "task"
+        }
+      ],
+      "symmetric": false,
+      "transitive": false,
+      "acyclic": true,
+      "scope": "owner",
+      "projects": "different",
+      "on_end_closed": "satisfied"
+    },
+    "duplicates": {
+      "layer": "work",
+      "inverse": "duplicates",
+      "ends": [
+        {
+          "from": "task",
+          "to": "task"
+        },
+        {
+          "from": "statement",
+          "to": "statement"
+        }
+      ],
+      "symmetric": true,
+      "transitive": false,
+      "acyclic": false,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "keep"
+    },
+    "predecessor_of": {
+      "layer": "work",
+      "inverse": "successor_of",
+      "ends": [
+        {
+          "from": "project",
+          "to": "project"
+        }
+      ],
+      "symmetric": false,
+      "transitive": false,
+      "acyclic": true,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "keep"
+    },
+    "parallel_line_of": {
+      "layer": "work",
+      "inverse": "parallel_line_of",
+      "ends": [
+        {
+          "from": "project",
+          "to": "project"
+        }
+      ],
+      "symmetric": true,
+      "transitive": false,
+      "acyclic": false,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "keep"
+    },
+    "member_of": {
+      "layer": "work",
+      "inverse": "has_member",
+      "ends": [
+        {
+          "from": "project",
+          "to": "project"
+        }
+      ],
+      "symmetric": false,
+      "transitive": false,
+      "acyclic": true,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "keep"
+    },
+    "related": {
+      "layer": "work",
+      "inverse": "related",
+      "ends": [
+        {
+          "from": "*",
+          "to": "*"
+        }
+      ],
+      "symmetric": true,
+      "transitive": false,
+      "acyclic": false,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "keep"
+    },
+    "resolves": {
+      "layer": "work",
+      "inverse": "resolved_by",
+      "ends": [
+        {
+          "from": "statement",
+          "to": "statement"
+        }
+      ],
+      "symmetric": false,
+      "transitive": false,
+      "acyclic": false,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "keep"
+    },
+    "mentions": {
+      "layer": "knowledge",
+      "inverse": "mentioned_by",
+      "ends": [
+        {
+          "from": "*",
+          "to": "*"
+        }
+      ],
+      "symmetric": false,
+      "transitive": false,
+      "acyclic": false,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "keep"
+    },
+    "contradicts": {
+      "layer": "knowledge",
+      "inverse": "contradicts",
+      "ends": [
+        {
+          "from": "*",
+          "to": "*"
+        }
+      ],
+      "symmetric": true,
+      "transitive": false,
+      "acyclic": false,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "keep"
+    },
+    "confirms": {
+      "layer": "knowledge",
+      "inverse": "confirmed_by",
+      "ends": [
+        {
+          "from": "*",
+          "to": "*"
+        }
+      ],
+      "symmetric": false,
+      "transitive": false,
+      "acyclic": false,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "keep"
+    },
+    "about": {
+      "layer": "knowledge",
+      "inverse": "subject_of",
+      "ends": [
+        {
+          "from": "*",
+          "to": "*"
+        }
+      ],
+      "symmetric": false,
+      "transitive": false,
+      "acyclic": false,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "keep"
+    },
+    "derived_from": {
+      "layer": "knowledge",
+      "inverse": "source_of",
+      "ends": [
+        {
+          "from": "*",
+          "to": "*"
+        }
+      ],
+      "symmetric": false,
+      "transitive": false,
+      "acyclic": true,
+      "scope": "owner",
+      "projects": "any",
+      "on_end_closed": "keep"
+    }
+  }
+}

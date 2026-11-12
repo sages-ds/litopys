@@ -1,0 +1,8 @@
+{
+  "name": "litopys",
+  "version": "0.1.7",
+  "description": "Litopys project memory for Claude Code: this terminal's session in the project of the folder, the start package from the native API, checkpoint reminders, folder bindings.",
+  "author": { "name": "Litopys" },
+  "homepage": "https://litopys.smart-gw.co.ua",
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,6014 @@
+{
+  "api_version": "1.0.0",
+  "spec_version": 1,
+  "tools": [
+    {
+      "name": "project_resume",
+      "verb": "project.resume",
+      "http": "/v1/project/resume",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Resume project",
+      "description": "Start here. Call this first in every conversation and whenever the user names or switches a project. Without `project` it returns a compact catalog of the user's projects (slug, title, short summary, scope, open tasks); the scope says what belongs to a project — pick the project for a record by it. With `project` (slug or human title) it attaches your session in that project — reusing the open one of this client or opening a new one — and returns the project state: where work stopped, the last session summary, open tasks in \"what next\" order, recent decisions, blockers, open questions, facts and next_steps. Later writes need no session id: they go to this session automatically. Rules in the answer; details: system_guide.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Project slug or human title. Omit to get the catalog."
+          },
+          "auto_create": {
+            "type": "boolean",
+            "default": false,
+            "description": "Create the project when it does not exist (slug derived from the title)."
+          },
+          "budget_tokens": {
+            "type": "integer",
+            "minimum": 500,
+            "maximum": 32000,
+            "default": 5000,
+            "description": "Upper bound of the answer size in tokens (default 5000)."
+          },
+          "open_session": {
+            "type": "boolean",
+            "default": true,
+            "description": "false to only look at the state: no session is opened, none is left to close."
+          },
+          "agent": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+            "description": "Only for a sub-agent: its role, e.g. \"reviewer\". Never a model or vendor name; the main assistant omits it."
+          },
+          "client": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "runtime": {
+                "type": "string"
+              },
+              "client_type": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "grant": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "agent": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "surface": {
+                "type": "string"
+              },
+              "app": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "session_resume",
+      "verb": "session.resume",
+      "http": "/v1/session/resume",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Resume session",
+      "description": "Continue an interrupted conversation: the user asks \"where were we\" or gives a session id. Returns that session (or your latest one in the project): its summary, the \"current\" note, the statements written and tasks changed in it, and a short project state. An open session is continued; a closed one is summarized and work continues in a new session of this client.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The session to continue."
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Project slug or title: resume your latest session there."
+          },
+          "budget_tokens": {
+            "type": "integer",
+            "minimum": 500,
+            "maximum": 32000
+          }
+        },
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "session_id"
+            ]
+          },
+          {
+            "required": [
+              "project"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "task_resume",
+      "verb": "task.resume",
+      "http": "/v1/task/resume",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Resume task",
+      "description": "Before working on one specific task (by its number in the project). Returns the task in full (body, acceptance, refs, resolution), its parent and children, and the statements that mention it — related decisions and findings. Attaches your session to the task's project, so what you write next lands there.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "num"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Project slug or title."
+          },
+          "num": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Task number in the project."
+          },
+          "budget_tokens": {
+            "type": "integer",
+            "minimum": 500,
+            "maximum": 32000
+          },
+          "open_session": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "topic_resume",
+      "verb": "topic.resume",
+      "http": "/v1/topic/resume",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Resume topic",
+      "description": "Before deciding or acting on a topic: what the user decided, what was proposed, found or tried, what was replaced, and which questions stay open — grouped, newest first. mode \"preflight\" (before a risky or irreversible action) adds open tasks and project facts on the topic. With `project` it searches that project and attaches your session there; without it, all the user's projects.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "topic"
+        ],
+        "properties": {
+          "topic": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 500,
+            "description": "The topic in a few words, any language."
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Limit to one project (slug or title) and attach your session there."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "recall",
+              "preflight"
+            ],
+            "default": "recall",
+            "description": "\"recall\" (default) or \"preflight\" before a risky action."
+          },
+          "budget_tokens": {
+            "type": "integer",
+            "minimum": 500,
+            "maximum": 32000
+          },
+          "open_session": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "session_open",
+      "verb": "session.open",
+      "http": "/v1/session/open",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Open session",
+      "description": "Low-level: open a session explicitly, or re-attach one you opened before (attach = its id from your own marker; \"none\" for a new one). For plugins and hooks that manage sessions themselves. In a conversation use project_resume instead — it opens or reuses the session and also returns the project state.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "attach"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "attach": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "const": "none"
+              }
+            ],
+            "description": "Id of a session you opened before (from your own marker), or \"none\" for a new one."
+          },
+          "auto_create": {
+            "type": "boolean",
+            "default": false
+          },
+          "agent": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "client": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "runtime": {
+                "type": "string"
+              },
+              "client_type": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "grant": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "agent": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "surface": {
+                "type": "string"
+              },
+              "app": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "session_checkpoint",
+      "verb": "session.checkpoint",
+      "http": "/v1/session/checkpoint",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full"
+      ],
+      "title": "Checkpoint session",
+      "description": "Save progress without ending the session: a summary of what was done so far and `current` — one or two lines on where work stands right now (the next session starts from it). Use after a meaningful step or before a long pause. Without session_id it goes to your open session.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "summary"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Defaults to your open session."
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "description": "What was done so far."
+          },
+          "current": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "One or two lines: where the work stands right now."
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "current": "free",
+        "summary": "free"
+      }
+    },
+    {
+      "name": "session_close",
+      "verb": "session.close",
+      "http": "/v1/session/close",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full"
+      ],
+      "title": "Close session",
+      "description": "End the session when the work or the conversation is done: a summary of what was achieved, decided and left open, plus `outcomes` — for each task, record or topic the session moved: what came of it, its state and the next step — and `next_steps`. The next session of any client starts from them. state done does not close a task: call task_close for that. The answer names tasks you changed but gave no outcome. Closing twice is harmless.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "summary"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Defaults to your open session."
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "description": "What was achieved, decided and left open."
+          },
+          "finish_run": {
+            "type": "boolean",
+            "default": true
+          },
+          "outcomes": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "required": [
+                "ref",
+                "result",
+                "state"
+              ],
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300
+                },
+                "result": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "done",
+                    "partial",
+                    "blocked",
+                    "failed"
+                  ]
+                },
+                "next": {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "maxItems": 5
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "One per subject the session moved. ref — the subject: T-12 (a task of this project), <project>/T-12, R-498 (a record) or topic:<name>; result — what came of it, one sentence; state — done, partial, blocked or failed; next — the next step, required unless done; evidence — commits, PRs, reports."
+          },
+          "next_steps": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "maxItems": 5,
+            "description": "What comes next beyond these subjects: the plan for the next session."
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "next_steps[]": "line",
+        "outcomes[].evidence[]": "line",
+        "outcomes[].next": "line",
+        "outcomes[].result": "line",
+        "summary": "free"
+      }
+    },
+    {
+      "name": "session_list",
+      "verb": "session.list",
+      "http": "/v1/session/list",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "List open sessions",
+      "description": "Your open sessions, optionally in one project, each marked `mine` when it belongs to this client. Use to find a session id to resume or close; project_resume and session_resume usually make this unnecessary.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "statement_assert",
+      "verb": "statement.assert",
+      "http": "/v1/statement/assert",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full"
+      ],
+      "title": "Save statement",
+      "description": "Save one thing worth remembering in the project: a decision the user made (type \"decision\"), your own recommendation (type \"proposal\" — never \"decision\"), a finding, an event (something done or that happened), a document, a note or an open question — or a more precise type of the project's vocabularies. Title = one line a search will find; body = the details (always pass it). Secrets are refused — write ${VAR} instead. Goes to your open session automatically; returns the statement id.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "type",
+          "title"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Project slug or title."
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+            "maxLength": 63,
+            "description": "A type of the project's vocabularies (the vocabulary block of project_resume): decision = the user decided; proposal = your recommendation; finding, question, event, document, note — or a vocabulary type like migration / dba.migration. A refused type lists the allowed ones."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "One line a search will find."
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 32768,
+            "description": "The details. Always pass it."
+          },
+          "concepts": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "maxItems": 20
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "maxItems": 50
+          },
+          "external_ref": {
+            "type": "string",
+            "maxLength": 512,
+            "description": "Idempotency key within the project: the same ref returns the same statement."
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Defaults to your open session in the project."
+          },
+          "effective_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "supersedes": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "data_class": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "local"
+            ]
+          },
+          "refs": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "description": "What this refers to: R-498 (a record), T-12 or <project>/T-12 (a task), W-3, X-17, or outside things like jira:ABC-1, pr:<url>. Internal refs must exist; they become links."
+          },
+          "fields": {
+            "type": "object",
+            "maxProperties": 20,
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          "retain_until": {
+            "type": "string",
+            "format": "date",
+            "description": "Only when the user said how long to keep it: the day (YYYY-MM-DD, Europe/Kyiv) from which on_expiry applies; pass on_expiry with it."
+          },
+          "on_expiry": {
+            "type": "string",
+            "enum": [
+              "retract",
+              "purge"
+            ],
+            "description": "retract = it is withdrawn that day; purge = that day a deletion proposal is opened for the user's GO (nothing is erased without it)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "body": "free",
+        "fields{}": "free",
+        "title": "line"
+      },
+      "executor": {
+        "description": "Save one record of your step in the project: title = one line a search will find, body = the details. type: finding, event, note, question, proposal or a type the step names. Secrets are refused.",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "project",
+            "type",
+            "title"
+          ],
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "Project slug or title."
+            },
+            "type": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+              "maxLength": 63,
+              "description": "A type of the project's vocabularies (the vocabulary block of project_resume): decision = the user decided; proposal = your recommendation; finding, question, event, document, note — or a vocabulary type like migration / dba.migration. A refused type lists the allowed ones."
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "One line a search will find."
+            },
+            "body": {
+              "type": "string",
+              "maxLength": 32768,
+              "description": "The details. Always pass it."
+            },
+            "concepts": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "maxItems": 20
+            },
+            "refs": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "description": "What this refers to: R-498 (a record), T-12 or <project>/T-12 (a task), W-3, X-17, or outside things like jira:ABC-1, pr:<url>. Internal refs must exist; they become links."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "statement_amend",
+      "verb": "statement.amend",
+      "http": "/v1/statement/amend",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full"
+      ],
+      "title": "Amend statement",
+      "description": "Correct or complete a statement you or the user saved earlier: pass only the fields that change. The previous revision stays in history. For a statement that is no longer true use statement_supersede instead.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "statement_id"
+        ],
+        "properties": {
+          "statement_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "if_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 32768
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+            "maxLength": 63
+          },
+          "concepts": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "data_class": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "local"
+            ]
+          },
+          "refs": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "fields": {
+            "type": "object",
+            "maxProperties": 20,
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "body": "free",
+        "fields{}": "free",
+        "reason": "free",
+        "title": "line"
+      }
+    },
+    {
+      "name": "statement_retract",
+      "verb": "statement.retract",
+      "http": "/v1/statement/retract",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Retract statement",
+      "description": "Withdraw a statement saved by mistake (wrong project, duplicate, wrong content). It disappears from search but stays in history and can be reinstated. A statement that was true and is now outdated → statement_supersede.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "statement_id"
+        ],
+        "properties": {
+          "statement_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "statement_retain",
+      "verb": "statement.retain",
+      "http": "/v1/statement/retain",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Set record retention",
+      "description": "Keep a record only until a date the user named: from that day it is retracted (on_expiry retract), or a deletion proposal is opened for the user's GO (on_expiry purge — nothing is erased without it). Set it only when the user asked how long to keep something. You may schedule retract only on your own records; a retention the user set is changed only by the user. retain_until \"\" lifts it.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "statement_id",
+          "retain_until"
+        ],
+        "properties": {
+          "statement_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "retain_until": {
+            "type": "string",
+            "description": "YYYY-MM-DD (Europe/Kyiv), today or later; \"\" lifts the retention."
+          },
+          "on_expiry": {
+            "type": "string",
+            "enum": [
+              "retract",
+              "purge"
+            ],
+            "description": "retract or purge; required with a date, omitted when lifting."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "statement_reinstate",
+      "verb": "statement.reinstate",
+      "http": "/v1/statement/reinstate",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Reinstate statement",
+      "description": "Undo statement_retract: the statement becomes current again and is found by search.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "statement_id"
+        ],
+        "properties": {
+          "statement_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "statement_supersede",
+      "verb": "statement.supersede",
+      "http": "/v1/statement/supersede",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Supersede statement",
+      "description": "Replace a statement that is no longer true with a new one (a decision changed, a fact moved on). The old one stays readable as superseded and points to the new one, so history explains itself.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "supersedes",
+          "statement"
+        ],
+        "properties": {
+          "supersedes": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "statement": {
+            "type": "object",
+            "required": [
+              "project",
+              "type",
+              "title"
+            ],
+            "properties": {
+              "project": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "type": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+                "maxLength": 63
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "body": {
+                "type": "string",
+                "maxLength": 32768
+              },
+              "concepts": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100
+                },
+                "maxItems": 20
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "maxItems": 50
+              },
+              "external_ref": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "session_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "effective_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "supersedes": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "data_class": {
+                "type": "string",
+                "enum": [
+                  "public",
+                  "internal",
+                  "local"
+                ]
+              },
+              "refs": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300
+                }
+              },
+              "fields": {
+                "type": "object",
+                "maxProperties": 20,
+                "additionalProperties": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              },
+              "retain_until": {
+                "type": "string",
+                "format": "date"
+              },
+              "on_expiry": {
+                "type": "string",
+                "enum": [
+                  "retract",
+                  "purge"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free",
+        "statement.body": "free",
+        "statement.fields{}": "free",
+        "statement.title": "line"
+      }
+    },
+    {
+      "name": "recall_search",
+      "verb": "recall.search",
+      "http": "/v1/recall/search",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Search memory",
+      "description": "Find statements by words, filters or both: returns a compact index (id, date, type, status, title, authority) — no bodies. Words in any language. Each row's `match` names the query words it holds and misses; `coverage` says whether any row holds the whole query, and `unknown_words` lists words no record holds — the answer may not be in memory. A query that is a number (R-498, T-12 or <project>/T-12, W-3, X-17) gives that record first, or the task / workflow / execution in `entity` (an erased record or a retracted task comes there too, with its state), then the records that mention it; tasks that mention it come in `mentioned_by`. Then read only the ids you need with recall_read. For \"what did we decide about X\" prefer topic_resume.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Words in any language; empty with filters lists by date."
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Project slug or title."
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+            "maxLength": 63,
+            "description": "A type of the project's vocabularies, short (migration) or full (dba.migration); with project it is resolved like a write."
+          },
+          "family": {
+            "type": "string",
+            "enum": [
+              "decision",
+              "proposal",
+              "finding",
+              "question",
+              "event",
+              "document",
+              "note",
+              "outcome"
+            ],
+            "description": "One of decision, proposal, finding, question, event, document, note, outcome: every type of that family in any vocabulary."
+          },
+          "concepts": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "maxItems": 20
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20
+          },
+          "external_ref": {
+            "type": "string"
+          },
+          "date_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "date_to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "include_snippet": {
+            "type": "boolean",
+            "default": false
+          },
+          "include_folded": {
+            "type": "boolean",
+            "default": true
+          },
+          "include_superseded": {
+            "type": "boolean",
+            "default": true
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 20
+          },
+          "id_before": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Paging: the smallest id of the previous page."
+          }
+        },
+        "additionalProperties": false
+      },
+      "executor": {
+        "description": "Find records by words (any language) and filters; returns a compact index without bodies. Read a body with recall_read only if the step allows it.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "maxLength": 2000,
+              "description": "Words in any language; empty with filters lists by date."
+            },
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "Project slug or title."
+            },
+            "type": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+              "maxLength": 63,
+              "description": "A type of the project's vocabularies, short (migration) or full (dba.migration); with project it is resolved like a write."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "recall_read",
+      "verb": "recall.read",
+      "http": "/v1/recall/read",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Read statements",
+      "description": "Full content of up to 20 statements by id, after recall_search or a resume. Retracted and superseded ones come with their status, not as errors; history=true adds earlier revisions.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "history": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "recall_as_of",
+      "verb": "recall.as_of",
+      "http": "/v1/recall/as_of",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Statements as of",
+      "description": "What was current at a moment: recorded_at = what the project believed then; effective_at = what was true then as known now. For audits and \"why did we do X back then\".",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "effective_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+            "maxLength": 63
+          },
+          "family": {
+            "type": "string",
+            "enum": [
+              "decision",
+              "proposal",
+              "finding",
+              "question",
+              "event",
+              "document",
+              "note",
+              "outcome"
+            ],
+            "description": "One of decision, proposal, finding, question, event, document, note, outcome: every type of that family in any vocabulary."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          }
+        },
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "recorded_at"
+            ]
+          },
+          {
+            "required": [
+              "effective_at"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "recall_timeline",
+      "verb": "recall.timeline",
+      "http": "/v1/recall/timeline",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Project timeline",
+      "description": "Statements of a project in time order with explicit links (supersedes, related, contradicts…). Use to explain how a decision evolved.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "date_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "date_to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+            "maxLength": 63
+          },
+          "family": {
+            "type": "string",
+            "enum": [
+              "decision",
+              "proposal",
+              "finding",
+              "question",
+              "event",
+              "document",
+              "note",
+              "outcome"
+            ],
+            "description": "One of decision, proposal, finding, question, event, document, note, outcome: every type of that family in any vocabulary."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "journal_changes",
+      "verb": "journal.changes",
+      "http": "/v1/journal/changes",
+      "kind": "query",
+      "auth": "consumer",
+      "profiles": [
+        "readonly"
+      ],
+      "title": "Journal changes",
+      "description": "For service consumers: events after a sequence number, gapless and in order; pass next_seq back next time. Events of erased or quarantined entities (journal.purged, journal.quarantined): drop your copy of their content, keep the number; on journal.released re-read the entity. journal.* events always pass the types filter.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "since_seq"
+        ],
+        "properties": {
+          "since_seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "with_payload": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "journal_purge",
+      "verb": "journal.purge",
+      "http": "/v1/journal/purge",
+      "kind": "command",
+      "auth": "admin",
+      "profiles": [],
+      "title": "Purge entity content",
+      "description": "Admin only. Physically erase the content of a record or a task (legal request, leaked secret). Irreversible; the journal keeps a marker event with the reason, and the number keeps answering with a tombstone.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "target",
+          "reason"
+        ],
+        "properties": {
+          "target": {
+            "type": "object",
+            "required": [
+              "entity_type",
+              "entity_id"
+            ],
+            "properties": {
+              "entity_type": {
+                "type": "string",
+                "enum": [
+                  "actor",
+                  "run",
+                  "context",
+                  "statement",
+                  "summary",
+                  "link",
+                  "project",
+                  "task",
+                  "fact",
+                  "consumer",
+                  "referent",
+                  "subject",
+                  "edge",
+                  "policy",
+                  "publication",
+                  "workflow",
+                  "deletion",
+                  "attachment"
+                ]
+              },
+              "entity_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "additionalProperties": false
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "legal_basis": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "legal_basis": "line",
+        "reason": "free"
+      }
+    },
+    {
+      "name": "journal_quarantine",
+      "verb": "journal.quarantine",
+      "http": "/v1/journal/quarantine",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Quarantine a record or task",
+      "description": "Hide a record or task at once from every read and search, without erasing it — for a leaked secret or personal data you notice, yours or not. The content stays stored until the user approves its erasure: with secret: true a purge proposal is made for the user's GO — do not report the secret as gone. Reversible only by the user (journal_release).",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "ref",
+          "reason"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "Why, without the substance: \"secret in the body\", not the secret itself. Everyone who follows the ref sees it."
+          },
+          "secret": {
+            "type": "boolean",
+            "description": "true when the content holds a secret (password, token, key)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "journal_release",
+      "verb": "journal.release",
+      "http": "/v1/journal/release",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Release from quarantine",
+      "description": "Show a quarantined record or task again — only when the user said so in this conversation; an agent never releases on its own.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "ref",
+          "reason"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "deletion_propose",
+      "verb": "deletion.propose",
+      "http": "/v1/deletion/propose",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Propose a deletion",
+      "description": "Propose to retract or erase a record or a task that is not yours to remove — the user decides. The answer names the proposal (<project>/D-N) and what depends on the target; nothing is removed until the user's GO. For a leaked secret, quarantine it first (journal_quarantine).",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "ref",
+          "action",
+          "reason"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "action": {
+            "enum": [
+              "retract",
+              "purge"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "Why, without the substance (\"secret in the body\", not the secret). Everyone who follows the ref sees it."
+          },
+          "secret": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "deletion_approve",
+      "verb": "deletion.approve",
+      "http": "/v1/deletion/approve",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Approve a deletion",
+      "description": "Record the user's GO on a deletion proposal — only when the user said so in this conversation; an agent never approves on its own. A retract is done at once; an erase is irreversible and is done within seconds.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "deletion"
+        ],
+        "properties": {
+          "deletion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "impact": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "note": "free"
+      }
+    },
+    {
+      "name": "deletion_reject",
+      "verb": "deletion.reject",
+      "http": "/v1/deletion/reject",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Reject a deletion",
+      "description": "Record the user's decision to keep the target of a deletion proposal — only when the user said so.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "deletion",
+          "reason"
+        ],
+        "properties": {
+          "deletion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "deletion_list",
+      "verb": "deletion.list",
+      "http": "/v1/deletion/list",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "List deletion proposals",
+      "description": "Deletion proposals waiting for the user's decision (or all of them), with their targets and impact.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "state": {
+            "enum": [
+              "waiting",
+              "open",
+              "approved",
+              "done",
+              "rejected",
+              "all"
+            ],
+            "default": "waiting"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "deletion_impact",
+      "verb": "deletion.impact",
+      "http": "/v1/deletion/impact",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Impact of deleting",
+      "description": "Before retracting, archiving or erasing anything, show the user who depends on it: what links to it (records and tasks that mention it, tasks that depend on it), outcomes about it and, for a project, what it holds. Deletion never changes those — they stay as they are.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "ref"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "R-498, T-12 or <project>/T-12, W-3, X-17, an id, or a project's name."
+          },
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Project of a short ref (T-12)."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_declare",
+      "verb": "project.declare",
+      "http": "/v1/project/declare",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Create project",
+      "description": "Create a project. Pass a human `title` (any language) and optionally a `name` slug; without a slug one is derived from the title. `scope` says in one line what belongs to the project. Creating twice with the same slug returns the existing project. project_resume with auto_create does the same and opens a session.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "repo_url": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "data_class": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "local"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "name"
+            ]
+          },
+          {
+            "required": [
+              "title"
+            ]
+          }
+        ]
+      },
+      "text_fields": {
+        "scope": "line",
+        "summary": "free",
+        "title": "line"
+      }
+    },
+    {
+      "name": "project_amend",
+      "verb": "project.amend",
+      "http": "/v1/project/amend",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Edit project",
+      "description": "Change a project's title, summary, scope (one line: what belongs here), repository URL or labels. Changing the slug (`name`) breaks folder bindings of plugins — prefer changing the title.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project"
+        ],
+        "minProperties": 2,
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "repo_url": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "labels": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,39}$"
+            }
+          },
+          "data_class": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "local"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "scope": "line",
+        "summary": "free",
+        "title": "line"
+      }
+    },
+    {
+      "name": "project_transition",
+      "verb": "project.transition",
+      "http": "/v1/project/transition",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Change project status",
+      "description": "Move a project between active, paused and archived. Archived projects stay searchable and can come back.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "status"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "archived"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "project_list",
+      "verb": "project.list",
+      "http": "/v1/project/list",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "List projects",
+      "description": "The user's projects with status, title and counts. project_resume without arguments gives a shorter catalog — use this one for filtering by status.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "archived"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "attachment_record",
+      "verb": "attachment.record",
+      "http": "/v1/attachment/record",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Attach a file",
+      "description": "Store a file of the project (a contract scan, a photo, an estimate; up to 10 MB, base64) and get its ref att:<sha>; name it in files of the record it belongs to. The person downloads it in the viewer.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "name",
+          "content_base64"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "mime": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "content_base64": {
+            "type": "string",
+            "maxLength": 14000000
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "attachment_list",
+      "verb": "attachment.list",
+      "http": "/v1/attachment/list",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "List files",
+      "description": "The files of a project with their refs (att:…), names, sizes and the viewer path to download them.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "ref": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "ledger_read",
+      "verb": "ledger.read",
+      "http": "/v1/ledger/read",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Sum the money",
+      "description": "Totals of the project's current records that carry an amount in fields (expenses, payments, repair cost, contract price), per currency, grouped by type, payee or month; optional date range by paid_at. Use it instead of adding sums up yourself.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+            "maxLength": 63
+          },
+          "group_by": {
+            "type": "string",
+            "enum": [
+              "type",
+              "payee",
+              "month"
+            ],
+            "default": "type"
+          },
+          "date_from": {
+            "type": "string",
+            "format": "date"
+          },
+          "date_to": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "project_pack",
+      "verb": "project.pack",
+      "http": "/v1/project/pack",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Pack project for the person",
+      "description": "A link for the person to download the whole project (records and tasks as markdown in a zip) from the viewer of this server. Give the person the path; you cannot open it yourself.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "layer_list",
+      "verb": "layer.list",
+      "http": "/v1/layer/list",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "List layer rules",
+      "description": "The resolved rules of a project's layers (global → spaces → project, the narrower one wins), each with its layer and source, without opening a session. Use it when work touches another project than the one of your session, or to show the rules.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "vocabulary_list",
+      "verb": "vocabulary.list",
+      "http": "/v1/vocabulary/list",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "List vocabularies",
+      "description": "The built-in usage vocabularies (record types grouped by domain: dev, dba, infra, hr…) with their purpose and size; with a project, which of them are enabled there. Use when a type you need is missing from the project's vocabulary block, then vocabulary_read for the types. Enabling one is the user's decision (fact_record kind vocabulary).",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Project slug or title: marks which vocabularies are enabled in it. Omit for the bare catalog."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "vocabulary_read",
+      "verb": "vocabulary.read",
+      "http": "/v1/vocabulary/read",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Read a vocabulary",
+      "description": "One built-in vocabulary in full: each record type with its family, what it is for, a body template and tags. Use before writing a record of a type you have not used yet. Types it includes from other vocabularies are listed by name only; read their own vocabulary for the text.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 63,
+            "description": "Vocabulary key from vocabulary_list, e.g. dba."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional; only the current version is served."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "task_declare",
+      "verb": "task.declare",
+      "http": "/v1/task/declare",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full"
+      ],
+      "title": "Add task",
+      "description": "Add a to-do item to the project: title, optional body, kind (task, bug, requirement, question, risk, test), priority, assignee, due date, parent, the executing project when it is another one. The server assigns a permanent number. An open task with the same title is returned instead of a duplicate.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "title"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Project slug or title."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "backlog",
+              "open",
+              "analysis",
+              "in_progress",
+              "review",
+              "testing",
+              "waiting",
+              "blocked"
+            ],
+            "default": "open"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "task",
+              "bug",
+              "requirement",
+              "question",
+              "risk",
+              "test"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "rank": {
+            "type": "integer"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "dev",
+              "dba",
+              "ops",
+              "pm",
+              "ba",
+              "qa"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Legacy free text; prefer owner_project and assignee."
+          },
+          "owner_project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Another project that executes this task (a handoff); omit when the task's own project does it."
+          },
+          "assignee": {
+            "type": "object",
+            "oneOf": [
+              {
+                "required": [
+                  "actor_id"
+                ]
+              },
+              {
+                "required": [
+                  "role"
+                ]
+              },
+              {
+                "required": [
+                  "agent"
+                ]
+              }
+            ],
+            "properties": {
+              "actor_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "dev",
+                  "dba",
+                  "ops",
+                  "pm",
+                  "ba",
+                  "qa"
+                ]
+              },
+              "agent": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              }
+            },
+            "additionalProperties": false,
+            "description": "Who does it: exactly one of actor_id, role (dev, ops, qa…) or agent (a subagent role like planner)."
+          },
+          "data_class": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "local"
+            ]
+          },
+          "due": {
+            "type": "string",
+            "format": "date"
+          },
+          "parent": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "acceptance": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "major",
+              "minor",
+              "trivial"
+            ]
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            },
+            "maxItems": 20
+          },
+          "refs": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "description": "What this task refers to: R-498 (a record), T-12 or <project>/T-12, W-3, X-17, or jira:ABC-1, pr:<url>. Internal refs must exist; they become links."
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "acceptance": "free",
+        "body": "free",
+        "title": "line"
+      }
+    },
+    {
+      "name": "task_amend",
+      "verb": "task.amend",
+      "http": "/v1/task/amend",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full"
+      ],
+      "title": "Update task",
+      "description": "Change a task by its number: status among the open ones (in_progress, review, blocked…), priority, assignee, body, labels and so on — pass only what changes; null clears a field. To finish a task use task_close.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "minProperties": 2,
+        "oneOf": [
+          {
+            "required": [
+              "task_id"
+            ]
+          },
+          {
+            "required": [
+              "project",
+              "num"
+            ]
+          }
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "num": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "if_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "backlog",
+              "open",
+              "analysis",
+              "in_progress",
+              "review",
+              "testing",
+              "waiting",
+              "blocked"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "task",
+              "bug",
+              "requirement",
+              "question",
+              "risk",
+              "test"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "rank": {
+            "type": "integer"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "dev",
+              "dba",
+              "ops",
+              "pm",
+              "ba",
+              "qa"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "owner_project": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another project that executes this task; null — its own project."
+          },
+          "assignee": {
+            "oneOf": [
+              {
+                "type": "object",
+                "oneOf": [
+                  {
+                    "required": [
+                      "actor_id"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "role"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "agent"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "actor_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "dev",
+                      "dba",
+                      "ops",
+                      "pm",
+                      "ba",
+                      "qa"
+                    ]
+                  },
+                  "agent": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exactly one of actor_id, role or agent; null clears."
+          },
+          "data_class": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "local"
+            ]
+          },
+          "due": {
+            "type": "string",
+            "format": "date"
+          },
+          "parent": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "acceptance": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "major",
+              "minor",
+              "trivial"
+            ]
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            },
+            "maxItems": 20
+          },
+          "refs": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 4000,
+            "description": "How it ended; null clears."
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "acceptance": "free",
+        "body": "free",
+        "resolution": "free",
+        "title": "line"
+      },
+      "executor": {
+        "description": "Change a task your step works on (project + num, or task_id): status, title, body, resolution. Only the fields you pass change.",
+        "inputSchema": {
+          "type": "object",
+          "minProperties": 2,
+          "oneOf": [
+            {
+              "required": [
+                "task_id"
+              ]
+            },
+            {
+              "required": [
+                "project",
+                "num"
+              ]
+            }
+          ],
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "num": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "task_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "backlog",
+                "open",
+                "analysis",
+                "in_progress",
+                "review",
+                "testing",
+                "waiting",
+                "blocked"
+              ]
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "body": {
+              "type": "string",
+              "maxLength": 8192
+            },
+            "resolution": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 4000,
+              "description": "How it ended; null clears."
+            },
+            "refs": {
+              "type": "array",
+              "maxItems": 20,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "task_close",
+      "verb": "task.close",
+      "http": "/v1/task/close",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full"
+      ],
+      "title": "Close task",
+      "description": "Finish a task: outcome \"done\" (completed) or \"dropped\" (decided not to do), with a resolution — how it ended.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "task_id"
+            ]
+          },
+          {
+            "required": [
+              "project",
+              "num"
+            ]
+          }
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "num": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "done",
+              "dropped"
+            ],
+            "description": "\"done\" or \"dropped\"."
+          },
+          "resolution": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "How it ended."
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "resolution": "free"
+      }
+    },
+    {
+      "name": "task_reopen",
+      "verb": "task.reopen",
+      "http": "/v1/task/reopen",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Reopen task",
+      "description": "Bring a closed task back to work, optionally with a status and a reason.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "oneOf": [
+          {
+            "required": [
+              "task_id"
+            ]
+          },
+          {
+            "required": [
+              "project",
+              "num"
+            ]
+          }
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "num": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "backlog",
+              "open",
+              "analysis",
+              "in_progress",
+              "review",
+              "testing",
+              "waiting",
+              "blocked"
+            ],
+            "default": "open"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "task_retract",
+      "verb": "task.retract",
+      "http": "/v1/task/retract",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Remove task",
+      "description": "Only for tasks created by mistake (duplicate, wrong project): removes it from lists, history keeps it. A task that will not be done → task_close with outcome \"dropped\".",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "task_id"
+            ]
+          },
+          {
+            "required": [
+              "project",
+              "num"
+            ]
+          }
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "num": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "task_list",
+      "verb": "task.list",
+      "http": "/v1/task/list",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "List tasks",
+      "description": "Tasks of a project in \"what next\" order (in progress, review, testing, analysis, open, blocked, waiting, backlog), filtered by state, status, kind, role, owner, label or text; bodies only on request.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "all"
+            ],
+            "default": "open"
+          },
+          "status": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "backlog",
+                "open",
+                "analysis",
+                "in_progress",
+                "review",
+                "testing",
+                "waiting",
+                "blocked",
+                "done",
+                "dropped"
+              ]
+            },
+            "maxItems": 10
+          },
+          "kind": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "task",
+                "bug",
+                "requirement",
+                "question",
+                "risk",
+                "test"
+              ]
+            },
+            "maxItems": 6
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "dev",
+              "dba",
+              "ops",
+              "pm",
+              "ba",
+              "qa"
+            ]
+          },
+          "owner": {
+            "type": "string"
+          },
+          "assignee_role": {
+            "type": "string",
+            "enum": [
+              "dev",
+              "dba",
+              "ops",
+              "pm",
+              "ba",
+              "qa"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "nums": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxItems": 100
+          },
+          "include_body": {
+            "type": "boolean",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "fact_record",
+      "verb": "fact.record",
+      "http": "/v1/fact/record",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Record project fact",
+      "description": "Set a durable fact of the project by kind and key (architecture, tech_stack, access, note; binding = a folder of a machine bound to the project, kept by the Claude Code plugin; instruction, style, agent, skill = rules of the project layer; credential = only a secret reference like \"openbao:path\", never the value; retention = a retention label of the project, value JSON {\"applies_to\": \"record\" | a record type | \"task\" (closed tasks), \"after_days\": N or \"retain_until\": \"YYYY-MM-DD\", \"action\": \"retract\" | \"purge\"} — the worker applies it daily at 03:30 Europe/Kyiv to what is older; set one only when the user asked; \"purge\" (irreversible) and \"applies_to\": \"record\" (every record) only the user may set — you may label a record type). Same key again replaces the value.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "kind",
+          "key"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "architecture",
+              "credential",
+              "access",
+              "note",
+              "tech_stack",
+              "binding",
+              "instruction",
+              "style",
+              "agent",
+              "skill",
+              "retention",
+              "vocabulary"
+            ]
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "secret_ref": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "value": "free"
+      }
+    },
+    {
+      "name": "fact_retire",
+      "verb": "fact.retire",
+      "http": "/v1/fact/retire",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Retire project fact",
+      "description": "Remove a project fact that no longer holds.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "kind",
+          "key"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "architecture",
+              "credential",
+              "access",
+              "note",
+              "tech_stack",
+              "binding",
+              "instruction",
+              "style",
+              "agent",
+              "skill",
+              "retention",
+              "vocabulary"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "fact_list",
+      "verb": "fact.list",
+      "http": "/v1/fact/list",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "List project facts",
+      "description": "Durable facts of a project (architecture, stack, access, notes), optionally by kind or text.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "architecture",
+              "credential",
+              "access",
+              "note",
+              "tech_stack",
+              "binding",
+              "instruction",
+              "style",
+              "agent",
+              "skill",
+              "retention",
+              "vocabulary"
+            ]
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "work_open_items",
+      "verb": "work.open_items",
+      "http": "/v1/work/open_items",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Open items",
+      "description": "What is not closed in a project: tasks by priority, unanswered questions, consumers lagging behind, and the cross-project check — mirrors whose owner task closed or vanished, mirrors without a handoff link, the same Jira key open in two projects, and tasks other projects wait on.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "link_assert",
+      "verb": "link.assert",
+      "http": "/v1/link/assert",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Link entities",
+      "description": "Connect two entities (statements, projects, tasks…) with a relation: related, contradicts, duplicates, confirms, depends_on, predecessor_of, parallel_line_of and so on.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "relation"
+        ],
+        "properties": {
+          "from": {
+            "type": "object",
+            "required": [
+              "entity_type",
+              "entity_id"
+            ],
+            "properties": {
+              "entity_type": {
+                "type": "string",
+                "enum": [
+                  "actor",
+                  "run",
+                  "context",
+                  "statement",
+                  "summary",
+                  "link",
+                  "project",
+                  "task",
+                  "fact",
+                  "consumer",
+                  "referent",
+                  "subject",
+                  "edge",
+                  "policy",
+                  "publication",
+                  "workflow",
+                  "deletion",
+                  "attachment"
+                ]
+              },
+              "entity_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "additionalProperties": false
+          },
+          "to": {
+            "type": "object",
+            "required": [
+              "entity_type",
+              "entity_id"
+            ],
+            "properties": {
+              "entity_type": {
+                "type": "string",
+                "enum": [
+                  "actor",
+                  "run",
+                  "context",
+                  "statement",
+                  "summary",
+                  "link",
+                  "project",
+                  "task",
+                  "fact",
+                  "consumer",
+                  "referent",
+                  "subject",
+                  "edge",
+                  "policy",
+                  "publication",
+                  "workflow",
+                  "deletion",
+                  "attachment"
+                ]
+              },
+              "entity_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "additionalProperties": false
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "related",
+              "contradicts",
+              "duplicates",
+              "confirms",
+              "about",
+              "derived_from",
+              "depends_on",
+              "predecessor_of",
+              "parallel_line_of",
+              "member_of",
+              "handoff",
+              "mentions",
+              "resolves"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "note": "free"
+      }
+    },
+    {
+      "name": "link_retire",
+      "verb": "link.retire",
+      "http": "/v1/link/retire",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Remove link",
+      "description": "Remove a link that was wrong or no longer holds.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "link_id"
+        ],
+        "properties": {
+          "link_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "consumer_checkpoint",
+      "verb": "consumer.checkpoint",
+      "http": "/v1/consumer/checkpoint",
+      "kind": "command",
+      "auth": "consumer",
+      "profiles": [],
+      "title": "Consumer checkpoint",
+      "description": "For service consumers: remember the last journal sequence number processed.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "consumer",
+          "seq"
+        ],
+        "properties": {
+          "consumer": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "consumer_list",
+      "verb": "consumer.list",
+      "http": "/v1/consumer/list",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "List consumers",
+      "description": "Consumers of the journal and how far each lags behind.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "consumer": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "actor_register",
+      "verb": "actor.register",
+      "http": "/v1/actor/register",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Register agent",
+      "description": "Register an agent, service or automation acting on the user's behalf, to give it its own identity and token.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "kind",
+          "display_name"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "human",
+              "agent",
+              "service",
+              "automation"
+            ]
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "client": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "runtime": {
+                "type": "string"
+              },
+              "client_type": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "grant": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "agent": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "surface": {
+                "type": "string"
+              },
+              "app": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "additionalProperties": false
+          },
+          "external_identity": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "executor": {
+            "type": "object",
+            "required": [
+              "provider",
+              "model",
+              "key_kind",
+              "max_data_class"
+            ],
+            "properties": {
+              "provider": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "key_kind": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "free",
+                  "paid",
+                  "plan_credits"
+                ]
+              },
+              "secret_ref": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "limits": {
+                "type": "object",
+                "properties": {
+                  "rpm": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "rpd": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "tpm": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "tpd": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "data_policy": {
+                "type": "object",
+                "properties": {
+                  "training": {
+                    "type": "boolean"
+                  },
+                  "retention": {
+                    "type": "boolean"
+                  },
+                  "human_review": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "max_data_class": {
+                "type": "string",
+                "enum": [
+                  "public",
+                  "internal",
+                  "local"
+                ]
+              },
+              "terms_checked_at": {
+                "type": "string",
+                "format": "date"
+              },
+              "terms_url": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "preset": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "adapter": {
+                "type": "string",
+                "enum": [
+                  "openai",
+                  "anthropic"
+                ]
+              },
+              "base_url": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "fields": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 120
+                }
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "key": {
+                "type": "object",
+                "required": [
+                  "fingerprint",
+                  "set_at"
+                ],
+                "properties": {
+                  "fingerprint": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}$"
+                  },
+                  "set_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "access": {
+                "type": "object",
+                "required": [
+                  "mode"
+                ],
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "preset",
+                      "projects",
+                      "all"
+                    ]
+                  },
+                  "projects": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                    },
+                    "maxItems": 200
+                  },
+                  "consent": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "granted_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "display_name": "line",
+        "executor.access.consent": "free"
+      }
+    },
+    {
+      "name": "actor_revoke",
+      "verb": "actor.revoke",
+      "http": "/v1/actor/revoke",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Revoke agent",
+      "description": "Revoke an agent or service registered earlier; its tokens stop working.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "actor_id",
+          "reason"
+        ],
+        "properties": {
+          "actor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "actor_amend",
+      "verb": "actor.amend",
+      "http": "/v1/actor/amend",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Edit agent",
+      "description": "Change an agent or service of yours: its name or its executor profile — the provider and model it runs on, the key reference, limits, what the provider does with data, and the highest data class it may receive.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "actor_id"
+        ],
+        "minProperties": 2,
+        "properties": {
+          "actor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "executor": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "provider",
+                  "model",
+                  "key_kind",
+                  "max_data_class"
+                ],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "key_kind": {
+                    "type": "string",
+                    "enum": [
+                      "local",
+                      "free",
+                      "paid",
+                      "plan_credits"
+                    ]
+                  },
+                  "secret_ref": {
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "limits": {
+                    "type": "object",
+                    "properties": {
+                      "rpm": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "rpd": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "tpm": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "tpd": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "data_policy": {
+                    "type": "object",
+                    "properties": {
+                      "training": {
+                        "type": "boolean"
+                      },
+                      "retention": {
+                        "type": "boolean"
+                      },
+                      "human_review": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "max_data_class": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "internal",
+                      "local"
+                    ]
+                  },
+                  "terms_checked_at": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "terms_url": {
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "preset": {
+                    "type": "string",
+                    "maxLength": 60
+                  },
+                  "adapter": {
+                    "type": "string",
+                    "enum": [
+                      "openai",
+                      "anthropic"
+                    ]
+                  },
+                  "base_url": {
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "fields": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 120
+                    }
+                  },
+                  "disabled": {
+                    "type": "boolean"
+                  },
+                  "key": {
+                    "type": "object",
+                    "required": [
+                      "fingerprint",
+                      "set_at"
+                    ],
+                    "properties": {
+                      "fingerprint": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}$"
+                      },
+                      "set_at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "access": {
+                    "type": "object",
+                    "required": [
+                      "mode"
+                    ],
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "preset",
+                          "projects",
+                          "all"
+                        ]
+                      },
+                      "projects": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                        },
+                        "maxItems": 200
+                      },
+                      "consent": {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      "granted_at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The whole executor profile (provider, model, key_kind, max_data_class…); null removes it."
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "display_name": "line",
+        "executor.access.consent": "free"
+      }
+    },
+    {
+      "name": "actor_list",
+      "verb": "actor.list",
+      "http": "/v1/actor/list",
+      "kind": "query",
+      "auth": "admin",
+      "profiles": [
+        "readonly"
+      ],
+      "title": "List actors",
+      "description": "Admin only. Who has access to this server: people, agents and services with their state, role, number of live tokens and live OAuth grants (client, vendor, profile, last use). Read-only — changes nothing.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Part of a name or an e-mail."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "human",
+              "agent",
+              "service",
+              "automation"
+            ]
+          },
+          "include_revoked": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also list revoked actors."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "run_start",
+      "verb": "run.start",
+      "http": "/v1/run/start",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Start run",
+      "description": "Low-level: start a run explicitly — a sub-agent passes parent_run_id and its role in `agent`. Sessions start runs on their own; most clients never need this.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "client"
+        ],
+        "properties": {
+          "parent_run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "client": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "runtime": {
+                "type": "string"
+              },
+              "client_type": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "grant": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "agent": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "surface": {
+                "type": "string"
+              },
+              "app": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "additionalProperties": false
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "purpose": "free"
+      }
+    },
+    {
+      "name": "run_finish",
+      "verb": "run.finish",
+      "http": "/v1/run/finish",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Finish run",
+      "description": "Low-level: finish a run started with run_start, with its outcome.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "run_id",
+          "outcome"
+        ],
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "failed",
+              "aborted",
+              "timeout"
+            ]
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "note": "free"
+      }
+    },
+    {
+      "name": "system_whoami",
+      "verb": "system.whoami",
+      "http": "/v1/system/whoami",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Who am I",
+      "description": "Who this connection acts for: the person, role, profile and client as Litopys sees them. Use to check the connection works or to answer \"which account is this\".",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "system_capabilities",
+      "verb": "system.capabilities",
+      "http": "/v1/system/capabilities",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Capabilities",
+      "description": "What this Litopys server offers: API and spec versions, the tools of this connection's profile, modules.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "system_guide",
+      "verb": "system.guide",
+      "http": "/v1/system/guide",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "chat",
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Guide",
+      "description": "How to use Litopys step by step: start, record, tasks, cross-project work, search, closing, deletion. Call without topic for the list. Use when unsure what to do next or which tool fits.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "enum": [
+              "start",
+              "record",
+              "tasks",
+              "cross-project",
+              "search",
+              "close",
+              "delete"
+            ],
+            "description": "One of: start, record, tasks, cross-project, search, close, delete. Omit for the list."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "system_health",
+      "verb": "system.health",
+      "http": "/v1/system/health",
+      "kind": "query",
+      "auth": "admin",
+      "profiles": [
+        "readonly"
+      ],
+      "title": "Health",
+      "description": "Admin only. Journal head, projector lag and consumer lag of this server.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "policy_set",
+      "verb": "policy.set",
+      "http": "/v1/policy/set",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Set policy rule",
+      "description": "Set, replace or switch off a visibility rule: which projects a client or vendor may see, which labels are hidden, which fact fields are redacted. Tenant-wide rules need the admin role.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "name",
+          "scope",
+          "rule"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "scope": {
+            "enum": [
+              "tenant",
+              "owner"
+            ]
+          },
+          "rule": {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "project_allowlist",
+                  "project_label_deny",
+                  "field_redaction",
+                  "client_allowlist"
+                ]
+              },
+              "projects": {
+                "type": "array",
+                "maxItems": 200,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                }
+              },
+              "labels": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9._-]{0,39}$"
+                }
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "fact.secret_ref",
+                    "fact.value"
+                  ]
+                }
+              },
+              "kinds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "client_ids": {
+                "type": "array",
+                "maxItems": 200,
+                "items": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "vendors": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "anthropic",
+                    "openai",
+                    "google",
+                    "local",
+                    "unknown"
+                  ]
+                }
+              },
+              "profiles": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "full",
+                    "core",
+                    "chat",
+                    "readonly"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "active": {
+            "type": "boolean",
+            "default": true
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "policy_explain",
+      "verb": "policy.explain",
+      "http": "/v1/policy/explain",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Explain policy",
+      "description": "Why a project is visible or hidden for this connection (or another token of yours): the rules that apply and who set them.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "token_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "workflow_declare",
+      "verb": "workflow.declare",
+      "http": "/v1/workflow/declare",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Declare workflow",
+      "description": "Save a repeatable process of the project as version 1: ordered steps with kind, executor class, allowed verbs, approval points and CEL conditions. Use when a procedure is run again and again (release, deploy, harvest). A changed procedure is a new version (workflow_supersede), not an edit.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "key",
+          "title",
+          "definition"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Project slug or title."
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+            "description": "Stable key of the process in the project, e.g. fork-sync."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "purpose": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "definition": {
+            "type": "object",
+            "required": [
+              "steps"
+            ],
+            "properties": {
+              "params": {
+                "type": "object"
+              },
+              "triggers": {
+                "type": "array",
+                "maxItems": 10,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "manual",
+                        "schedule",
+                        "journal",
+                        "webhook"
+                      ]
+                    },
+                    "spec": {
+                      "type": "string",
+                      "maxLength": 500
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "touches": {
+                "type": "array",
+                "maxItems": 30,
+                "items": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "verified_at": {
+                "type": "string",
+                "format": "date"
+              },
+              "steps": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "key",
+                    "title",
+                    "kind"
+                  ],
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_]{0,40}$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "script",
+                        "model",
+                        "human",
+                        "external",
+                        "subworkflow"
+                      ]
+                    },
+                    "executor_class": {
+                      "type": "string",
+                      "enum": [
+                        "cheap",
+                        "main"
+                      ]
+                    },
+                    "delegable": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "who_may_run": {
+                      "type": "string",
+                      "enum": [
+                        "assistant",
+                        "executor",
+                        "human_only"
+                      ]
+                    },
+                    "input": {
+                      "type": "object"
+                    },
+                    "output": {
+                      "type": "object"
+                    },
+                    "context_pack": {
+                      "type": "object",
+                      "properties": {
+                        "selectors": {
+                          "type": "array",
+                          "maxItems": 20,
+                          "items": {
+                            "type": "string",
+                            "maxLength": 300
+                          }
+                        },
+                        "budget_tokens": {
+                          "type": "integer",
+                          "minimum": 500,
+                          "maximum": 32000
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "verbs": {
+                      "type": "array",
+                      "maxItems": 30,
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z_]+[.][a-z_]+$"
+                      }
+                    },
+                    "write_mode": {
+                      "type": "string",
+                      "enum": [
+                        "direct",
+                        "candidate"
+                      ]
+                    },
+                    "max_data_class": {
+                      "type": "string",
+                      "enum": [
+                        "public",
+                        "internal",
+                        "local"
+                      ]
+                    },
+                    "requires_approval": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "condition": {
+                      "type": "string",
+                      "maxLength": 1000
+                    },
+                    "next": {
+                      "type": "array",
+                      "maxItems": 10,
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]{0,40}$"
+                      }
+                    },
+                    "idempotency": {
+                      "type": "string",
+                      "maxLength": 300
+                    },
+                    "timeout_s": {
+                      "type": "integer",
+                      "minimum": 10,
+                      "maximum": 604800
+                    },
+                    "heartbeat_s": {
+                      "type": "integer",
+                      "minimum": 5,
+                      "maximum": 3600
+                    },
+                    "retry": {
+                      "type": "object",
+                      "properties": {
+                        "max": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10
+                        },
+                        "backoff_s": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 86400
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "external": {
+                      "type": "object",
+                      "properties": {
+                        "system": {
+                          "type": "string",
+                          "maxLength": 60
+                        },
+                        "ref": {
+                          "type": "string",
+                          "maxLength": 300
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "subworkflow": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                    },
+                    "acceptance": {
+                      "type": "string",
+                      "maxLength": 4000
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false,
+            "description": "steps (key, title, kind: script | model | human | external | subworkflow, …), params, triggers."
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "definition.steps[].acceptance": "free",
+        "definition.steps[].title": "line",
+        "purpose": "free",
+        "title": "line"
+      }
+    },
+    {
+      "name": "workflow_amend",
+      "verb": "workflow.amend",
+      "http": "/v1/workflow/amend",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Rename workflow",
+      "description": "Change the title or the purpose of a process; its steps change only through a new version (workflow_supersede).",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "key"
+        ],
+        "minProperties": 3,
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "purpose": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "purpose": "free",
+        "title": "line"
+      }
+    },
+    {
+      "name": "workflow_supersede",
+      "verb": "workflow.supersede",
+      "http": "/v1/workflow/supersede",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "New workflow version",
+      "description": "Publish a changed process as a new immutable version: pass the full definition. Runs already in progress keep their version. The same definition again changes nothing.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "key",
+          "definition"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "if_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The version you edited; refused if another version came in between."
+          },
+          "definition": {
+            "type": "object",
+            "required": [
+              "steps"
+            ],
+            "properties": {
+              "params": {
+                "type": "object"
+              },
+              "triggers": {
+                "type": "array",
+                "maxItems": 10,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "manual",
+                        "schedule",
+                        "journal",
+                        "webhook"
+                      ]
+                    },
+                    "spec": {
+                      "type": "string",
+                      "maxLength": 500
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "touches": {
+                "type": "array",
+                "maxItems": 30,
+                "items": {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              },
+              "verified_at": {
+                "type": "string",
+                "format": "date"
+              },
+              "steps": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 50,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "key",
+                    "title",
+                    "kind"
+                  ],
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_]{0,40}$"
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "script",
+                        "model",
+                        "human",
+                        "external",
+                        "subworkflow"
+                      ]
+                    },
+                    "executor_class": {
+                      "type": "string",
+                      "enum": [
+                        "cheap",
+                        "main"
+                      ]
+                    },
+                    "delegable": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "who_may_run": {
+                      "type": "string",
+                      "enum": [
+                        "assistant",
+                        "executor",
+                        "human_only"
+                      ]
+                    },
+                    "input": {
+                      "type": "object"
+                    },
+                    "output": {
+                      "type": "object"
+                    },
+                    "context_pack": {
+                      "type": "object",
+                      "properties": {
+                        "selectors": {
+                          "type": "array",
+                          "maxItems": 20,
+                          "items": {
+                            "type": "string",
+                            "maxLength": 300
+                          }
+                        },
+                        "budget_tokens": {
+                          "type": "integer",
+                          "minimum": 500,
+                          "maximum": 32000
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "verbs": {
+                      "type": "array",
+                      "maxItems": 30,
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z_]+[.][a-z_]+$"
+                      }
+                    },
+                    "write_mode": {
+                      "type": "string",
+                      "enum": [
+                        "direct",
+                        "candidate"
+                      ]
+                    },
+                    "max_data_class": {
+                      "type": "string",
+                      "enum": [
+                        "public",
+                        "internal",
+                        "local"
+                      ]
+                    },
+                    "requires_approval": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "condition": {
+                      "type": "string",
+                      "maxLength": 1000
+                    },
+                    "next": {
+                      "type": "array",
+                      "maxItems": 10,
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]{0,40}$"
+                      }
+                    },
+                    "idempotency": {
+                      "type": "string",
+                      "maxLength": 300
+                    },
+                    "timeout_s": {
+                      "type": "integer",
+                      "minimum": 10,
+                      "maximum": 604800
+                    },
+                    "heartbeat_s": {
+                      "type": "integer",
+                      "minimum": 5,
+                      "maximum": 3600
+                    },
+                    "retry": {
+                      "type": "object",
+                      "properties": {
+                        "max": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10
+                        },
+                        "backoff_s": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 86400
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "external": {
+                      "type": "object",
+                      "properties": {
+                        "system": {
+                          "type": "string",
+                          "maxLength": 60
+                        },
+                        "ref": {
+                          "type": "string",
+                          "maxLength": 300
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "subworkflow": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                    },
+                    "acceptance": {
+                      "type": "string",
+                      "maxLength": 4000
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false,
+            "description": "The full definition of the new version."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "definition.steps[].acceptance": "free",
+        "definition.steps[].title": "line",
+        "reason": "free"
+      }
+    },
+    {
+      "name": "workflow_retire",
+      "verb": "workflow.retire",
+      "http": "/v1/workflow/retire",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Retire workflow",
+      "description": "Stop using a process: it can no longer be started; its versions stay readable.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "key"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    },
+    {
+      "name": "workflow_list",
+      "verb": "workflow.list",
+      "http": "/v1/workflow/list",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "List workflows",
+      "description": "Processes of a project with their current version and number of steps; retired ones only on request.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "include_retired": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "workflow_read",
+      "verb": "workflow.read",
+      "http": "/v1/workflow/read",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Read workflow",
+      "description": "The definition of a process: steps with kind, executor class, allowed verbs, approvals and conditions — the current version or a past one; optionally as SKILL.md.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "key"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "A past version; default the current one."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "skill"
+            ],
+            "default": "json",
+            "description": "skill also returns the process as a SKILL.md text for agent clients."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "execution_start",
+      "verb": "execution.start",
+      "http": "/v1/execution/start",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Start workflow run",
+      "description": "Start a run of a project's process (its current version unless a version is given) and get the steps that are ready. Then take each ready step with step_start, finish it with step_finish; human steps and approval points wait for the user's GO (approval_grant).",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "project",
+          "workflow"
+        ],
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "workflow": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+            "description": "Key of the process."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "params": {
+            "type": "object",
+            "description": "Run parameters (the process params schema); conditions read them as params.<name>."
+          },
+          "task_num": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "parent_execution_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parent_step_key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,40}$"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "execution_close",
+      "verb": "execution.close",
+      "http": "/v1/execution/close",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Close workflow run",
+      "description": "End a run: completed, failed or canceled, with a short summary. A run whose last step finished is closed by the server already.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "execution_id",
+          "outcome"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed",
+              "canceled"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "summary": "free"
+      }
+    },
+    {
+      "name": "execution_list",
+      "verb": "execution.list",
+      "http": "/v1/execution/list",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "List workflow runs",
+      "description": "Runs of processes — open ones by default — with progress: steps done of all, steps waiting for a person.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "all"
+            ],
+            "default": "open"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "execution_read",
+      "verb": "execution.read",
+      "http": "/v1/execution/read",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Read workflow run",
+      "description": "A run with every step: state (submitted = ready, working, input_required, completed, failed, skipped, pending), attempts with who ran them and until when the lease holds, outputs and approvals.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "execution_id"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "step_start",
+      "verb": "step.start",
+      "http": "/v1/step/start",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Take workflow step",
+      "description": "Take a ready step of a run for yourself: you get an attempt with a lease. Renew the lease with step_checkpoint on long work and end with step_finish. Refused when another executor holds the step or it is not ready.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "execution_id",
+          "step_key"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "step_key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,40}$"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "step_checkpoint",
+      "verb": "step.checkpoint",
+      "http": "/v1/step/checkpoint",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Renew step lease",
+      "description": "Keep a long step alive: renews the lease of your attempt and can save a partial output.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "attempt_id"
+        ],
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "output": {
+            "type": "object"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "note": "free"
+      }
+    },
+    {
+      "name": "step_finish",
+      "verb": "step.finish",
+      "http": "/v1/step/finish",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Finish workflow step",
+      "description": "End your attempt of a step with its outcome and output; returns the steps that became ready. Finishing the last step closes the run.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "attempt_id",
+          "state"
+        ],
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed",
+              "canceled",
+              "rejected"
+            ],
+            "description": "completed, failed, canceled, or rejected (you refuse by the rules, e.g. a GO is missing)."
+          },
+          "output": {
+            "type": "object",
+            "description": "The step output; later conditions read it as steps.<key>.output."
+          },
+          "error": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "error": "free"
+      }
+    },
+    {
+      "name": "step_open_items",
+      "verb": "step.open_items",
+      "http": "/v1/step/open_items",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Workflow steps to take",
+      "description": "Steps of your open runs that are ready to be taken (not human steps, not waiting for a GO) — the work queue an executor pulls from.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "executor_actor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "step_pack",
+      "verb": "step.pack",
+      "http": "/v1/step/pack",
+      "kind": "query",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full",
+        "readonly"
+      ],
+      "title": "Step package",
+      "description": "Everything an executor needs for one step: its definition (allowed tools, output format, acceptance), the run parameters, outputs of finished steps and the context its selectors name — so it does not have to search.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "execution_id",
+          "step_key"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "step_key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,40}$"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "step_delegate",
+      "verb": "step.delegate",
+      "http": "/v1/step/delegate",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Delegate workflow step",
+      "description": "Give one step of a run to an executor (a sub-agent or a runner): returns a short-lived token that can only take and finish this step with the verbs the step allows, in this project. Hand the token to the executor; it dies when the run closes or your token is revoked.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "execution_id",
+          "step_key"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "step_key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,40}$"
+          },
+          "actor_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+            "description": "Role of the executor (e.g. harvester); its agent actor is registered on demand. Or pass actor_id."
+          },
+          "ttl_s": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 86400,
+            "description": "Lifetime in seconds, at most a day and never beyond your own token."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "approval_grant",
+      "verb": "approval.grant",
+      "http": "/v1/approval/grant",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Approve workflow step",
+      "description": "Record the user's GO for a step of a run — only when the user said so in this conversation; an agent never approves on its own. A human step is done by its GO; a step that requires approval may start after it.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "execution_id",
+          "step_key"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "step_key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,40}$"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": "A partial GO: only these elements (e.g. note numbers) are approved."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "note": "free"
+      }
+    },
+    {
+      "name": "approval_revoke",
+      "verb": "approval.revoke",
+      "http": "/v1/approval/revoke",
+      "kind": "command",
+      "auth": "owner",
+      "profiles": [
+        "core",
+        "full"
+      ],
+      "title": "Revoke approval",
+      "description": "Take back a GO that no step has used yet.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "approval_id"
+        ],
+        "properties": {
+          "approval_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "additionalProperties": false
+      },
+      "text_fields": {
+        "reason": "free"
+      }
+    }
+  ],
+  "surface_hash": "33ade8adecfc3811"
+}

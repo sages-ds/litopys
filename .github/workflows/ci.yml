@@ -1,0 +1,63 @@
+# CI of the public repository. Everything here runs without a database: the gates that need PostgreSQL run in
+# the maintainers' environment before a change reaches this repository.
+#   go       build, vet, gofmt, the unit tests
+#   domain   the domain validator, the drift check of the generated API surface, the plugin and search-lib tests
+#   hygiene  forbidden terms (list from the secret FORBIDDEN_TERMS_B64, the report never names a term) and gitleaks
+name: public-ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work # its toolchain line is the Go the code is built with
+          cache-dependency-path: |
+            core/go.sum
+            internal/go.sum
+      - run: go build ./core/... ./internal/...
+      - run: go vet ./core/... ./internal/...
+      - run: test -z "$(gofmt -l core internal)"
+      - run: go test ./core/textnorm/... ./core/vocab/... ./core/ops/ ./core/executors/ ./core/migrate/ -count=1
+  domain:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+      - run: node domain/tools/validate.mjs
+      - run: node domain/tools/gen.mjs --check
+      - run: node --test evals/search/lib.test.mjs
+      - run: node --test clients/claude-code/litopys/test/plugin.test.mjs
+  hygiene:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read # gitleaks lists the commits of a pull request
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans the history, not only the tree
+      - name: forbidden terms (blocking)
+        env:
+          FORBIDDEN_TERMS_B64: ${{ secrets.FORBIDDEN_TERMS_B64 }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          # a pull request from a fork gets no secrets: the check says it was skipped; on main it must run
+          if [ -z "$FORBIDDEN_TERMS_B64" ] && [ "$EVENT" = "push" ]; then
+            echo "FORBIDDEN_TERMS_B64 is not set: the terms gate cannot run on main" >&2
+            exit 1
+          fi
+          bash scripts/check-terms.sh --tree .
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false" # the job fails and says where; no write access to pull requests

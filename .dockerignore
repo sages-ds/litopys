@@ -1,0 +1,4 @@
+# The image is built from core/ and internal/ only (Dockerfile): keep the rest out of the build context.
+*
+!core
+!internal

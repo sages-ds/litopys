@@ -1,0 +1,42 @@
+# П3 золотого набору: деплой серверного коду з pre-flight по міграціях і post-check.
+schema: "types.yaml#/$defs/WorkflowDefinition"
+example:
+  params:
+    type: object
+    required: [commit]
+    properties:
+      commit: { type: string }
+      has_migration: { type: boolean }
+  triggers:
+    - { kind: manual }
+  touches: [ci, app-host, git-forge]
+  steps:
+    - key: preflight
+      title: Pre-flight по міграціях
+      kind: model
+      executor_class: cheap
+    - key: decide
+      title: Рішення за чеклістом
+      kind: model
+      executor_class: main
+      delegable: false
+    - key: run
+      title: Запуск задачі деплою в CI
+      kind: external
+      who_may_run: human_only
+      external: { system: ci, ref: "job:deploy" }
+      timeout_s: 1800
+    - key: postcheck
+      title: Post-check
+      kind: script
+    - key: verify_restore
+      title: Verify-restore після міграції
+      kind: external
+      condition: "params.has_migration"
+      external: { system: ci, ref: "job:verify-restore" }
+    - key: rollback
+      title: Відкат
+      kind: external
+      condition: "steps.postcheck.output.ok == false"
+      requires_approval: true
+      external: { system: ci, ref: "job:deploy" }

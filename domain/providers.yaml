@@ -1,0 +1,117 @@
+# Пресети вендорів моделей для виконавців раннера. Сторінка налаштувань заповнює форму
+# пресетом; людина може змінити будь-яке поле. Довідка (як отримати ключ) — розділ вендора в domain/executor-keys.md, генератор
+# вбудовує його в core/executors/gen/providers.json за заголовком «### … (`<key>`)».
+#
+# Поля:
+#   title          назва для людини
+#   adapter        openai — OpenAI-сумісний chat/completions; anthropic — Messages API
+#   base_url       адреса API; {поле} підставляється з fields (Cloudflare: {account_id})
+#   fields         додаткові поля форми, крім ключа
+#   model          модель за замовчуванням (людина обирає зі списку /models після перевірки ключа)
+#   key_kind       local | free | paid | plan_credits
+#   limits         rpm / rpd / tpm / tpd за замовчуванням (безкоштовні тарифи змінюються — редаговані)
+#   data_policy    training / retention / human_review за умовами вендора на terms_checked_at
+#   data_class     клас за замовчуванням; вище — лише свідомим рішенням людини (executor.access_set)
+#   terms_url      сторінка умов, terms_checked_at — дата перевірки
+spec_version: 1
+providers:
+  openrouter:
+    title: OpenRouter
+    adapter: openai
+    base_url: https://openrouter.ai/api/v1
+    model: openai/gpt-oss-120b:free
+    key_kind: free
+    limits: { rpm: 20, rpd: 50 }
+    data_policy: { training: true, retention: true, human_review: false }
+    data_class: public
+    terms_url: https://openrouter.ai/terms
+    terms_checked_at: 2026-11-01
+  groq:
+    title: Groq
+    adapter: openai
+    base_url: https://api.groq.com/openai/v1
+    model: openai/gpt-oss-120b
+    key_kind: free
+    limits: { rpm: 30, rpd: 1000, tpm: 8000, tpd: 200000 }
+    data_policy: { training: false, retention: false, human_review: false }
+    data_class: internal
+    terms_url: https://console.groq.com/docs/your-data
+    terms_checked_at: 2026-10-16
+  gemini:
+    title: Google AI Studio (Gemini)
+    adapter: openai
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    model: gemini-2.5-flash
+    key_kind: free
+    data_policy: { training: true, retention: true, human_review: true }
+    data_class: public
+    terms_url: https://ai.google.dev/gemini-api/terms
+    terms_checked_at: 2026-10-13
+  mistral:
+    title: Mistral
+    adapter: openai
+    base_url: https://api.mistral.ai/v1
+    model: mistral-small-latest
+    key_kind: free
+    data_policy: { training: true }
+    data_class: public
+    terms_url: https://mistral.ai/terms
+    terms_checked_at: 2026-10-13
+  nvidia:
+    title: NVIDIA NIM
+    adapter: openai
+    base_url: https://integrate.api.nvidia.com/v1
+    model: openai/gpt-oss-120b
+    key_kind: free
+    limits: { rpm: 40 }
+    data_class: public
+    terms_url: https://build.nvidia.com/
+    terms_checked_at: 2026-11-01
+  cloudflare:
+    title: Cloudflare Workers AI
+    adapter: openai
+    base_url: https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1
+    fields: [account_id]
+    model: "@cf/openai/gpt-oss-120b"
+    key_kind: free
+    data_class: public
+    terms_url: https://www.cloudflare.com/service-specific-terms-developer-platform/
+    terms_checked_at: 2026-11-01
+  cerebras:
+    title: Cerebras
+    adapter: openai
+    base_url: https://api.cerebras.ai/v1
+    model: gpt-oss-120b
+    key_kind: free
+    data_class: public
+    terms_url: https://www.cerebras.ai/terms-of-service
+    terms_checked_at: 2026-11-01
+  ollama:
+    title: Ollama (локально)
+    adapter: openai
+    base_url: http://{host}:11434/v1
+    fields: [host]
+    model: qwen3:8b
+    key_kind: local
+    data_policy: { training: false, retention: false, human_review: false }
+    data_class: local
+  openai:
+    title: OpenAI
+    adapter: openai
+    base_url: https://api.openai.com/v1
+    model: gpt-5-mini
+    key_kind: paid
+    data_policy: { training: false, retention: true, human_review: false }
+    data_class: internal
+    terms_url: https://openai.com/policies/business-terms/
+    terms_checked_at: 2026-11-01
+  anthropic:
+    title: Anthropic
+    adapter: anthropic
+    base_url: https://api.anthropic.com/v1
+    model: claude-haiku-5-5
+    key_kind: paid
+    data_policy: { training: false, retention: true, human_review: false }
+    data_class: internal
+    terms_url: https://www.anthropic.com/legal/commercial-terms
+    terms_checked_at: 2026-11-01
